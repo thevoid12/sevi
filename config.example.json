@@ -26,7 +26,7 @@
   },
 
   "cost": {
-    "confirm_over_usd": 0.10,
+    "confirm_over_usd": 0.30,
     "est_usd_per_1k_chars": 0.0,
     "show_in_reply": true
   },

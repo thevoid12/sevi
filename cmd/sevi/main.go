@@ -59,6 +59,22 @@ func main() {
 		}
 	}
 
+	if args := flag.Args(); len(args) > 0 {
+		switch {
+		case args[0] == "tts" && len(args) == 2:
+			if err := runTTS(ctx, rlog, cfg, args[1]); err != nil {
+				rlog.Errorw("tts failed", "url", args[1], "err", err)
+				flush()
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		default:
+			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url>]")
+			os.Exit(2)
+		}
+	}
+
 	rlog.Infow("sevi started",
 		"config", *cfgPath,
 		"listen", cfg.App.Listen,

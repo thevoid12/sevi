@@ -32,14 +32,14 @@ Model roles in config (all separately configurable):
 
 ## Phase 1: Refactor v0 into packages
 
-- [ ] `internal/fetch`: Jina fetch, `toSpeakable`, `detectScript`, `chunk` moved out of `main.go`, unchanged behavior
-- [ ] `internal/audio`: PCM to MP3 via ffmpeg, plus stitching of chunk audio into one file
-- [ ] `internal/provider`: `TTS` interface and one implementation over `net/http` (OpenRouter speech endpoint), model/voice/url from config
-- [ ] TTS retries (config: attempts, backoff); a chunk that still fails returns an error naming the chunk instead of being skipped
-- [ ] Per-call usage and cost captured from the provider response, returned to the caller
-- [ ] Keep a CLI path: `sevi tts <url>` produces `output/<slug>.mp3` like v0
+- [x] `internal/fetch`: Jina fetch, `toSpeakable`, `detectScript`, `chunk` moved out of `main.go`, unchanged behavior
+- [x] `internal/audio`: PCM to MP3 via ffmpeg, plus stitching of chunk audio into one file
+- [x] `internal/provider`: `TTS` interface and one implementation over `net/http` (OpenRouter speech endpoint), model/voice/url from config
+- [x] TTS retries (`app.retries`, fixed growing backoff; only network errors, 429 and 5xx are retried, a 401 fails at once); a chunk that still fails stops the job with an error naming the chunk, and completed chunks are kept as `<slug>.partial.mp3`
+- [x] Per-call usage and cost captured from the provider response, returned to the caller
+- [x] Keep a CLI path: `sevi tts <url>` produces `output/<slug>.mp3` and `.cost.md` like v0; the old root `main.go` is removed (in git history)
 
-**Checkpoint 1:** `sevi tts <url>` produces the same quality MP3 as v0 for a blog you already tested, with logs, and prints the cost. A forced bad key yields a clear logged error, not a silent skip.
+**Checkpoint 1 (done, awaiting review):** `sevi tts <url>` produces the same quality MP3 as v0 for a blog you already tested, with logs, and prints the cost. A forced bad key yields a clear logged error, not a silent skip.
 
 ---
 
