@@ -175,8 +175,11 @@ func (s *Store) GetPage(ctx context.Context, urlHash string) (Page, error) {
 	return r, notFound(err)
 }
 
-func (s *Store) PutPage(ctx context.Context, url, text string) error {
-	return s.q.PutPage(ctx, db.PutPageParams{ID: newID(), UrlHash: URLHash(url), Url: url, Text: text})
+func (s *Store) PutPage(ctx context.Context, url, title, text string) error {
+	return s.q.PutPage(ctx, db.PutPageParams{
+		ID: newID(), UrlHash: URLHash(url), Url: url, Text: text,
+		Title: sql.NullString{String: title, Valid: title != ""},
+	})
 }
 
 func (s *Store) GetAudio(ctx context.Context, urlHash, ttsModel, voice string) (CachedAudio, error) {
@@ -236,4 +239,16 @@ func (s *Store) TTSCostPerChar(ctx context.Context, model string) (perChar float
 		return 0, false, nil
 	}
 	return r.TotalUsd / float64(r.TotalChars), true, nil
+}
+
+// PutThread records that an adapter's conversation handle (e.g. a Telegram
+// chat_id:message_id) belongs to a session. Re-registering a handle moves it.
+func (s *Store) PutThread(ctx context.Context, adapter, threadRef, sessionID string) error {
+	return s.q.PutThread(ctx, db.PutThreadParams{ID: newID(), Adapter: adapter, ThreadRef: threadRef, SessionID: sessionID})
+}
+
+// SessionForThread returns the session an adapter handle belongs to, or ErrNotFound.
+func (s *Store) SessionForThread(ctx context.Context, adapter, threadRef string) (string, error) {
+	r, err := s.q.GetThread(ctx, db.GetThreadParams{Adapter: adapter, ThreadRef: threadRef})
+	return r.SessionID, notFound(err)
 }

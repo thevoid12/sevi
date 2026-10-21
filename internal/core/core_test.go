@@ -62,7 +62,7 @@ func newEnv(t *testing.T, confirmOverUSD, estPer1K float64) *env {
 		Cost:   config.Cost{ConfirmOverUSD: confirmOverUSD, EstUSDPer1KChar: estPer1K},
 	}
 	tts := &fakeTTS{}
-	page := strings.Repeat("This is a sentence that will be read aloud. ", 130) // ~5700 chars
+	page := "Title: A Test Post\n\nMarkdown Content:\n" + strings.Repeat("This is a sentence that will be read aloud. ", 130) // ~5700 chars
 	c := New(Deps{
 		Cfg: cfg, Store: st, Blob: bl, Log: log, TTS: tts,
 		Markdown: func(context.Context, string) (string, error) { return page, nil },
@@ -117,6 +117,9 @@ func TestShortBlogRunsAndCostsResolve(t *testing.T) {
 	}
 	if got := e.tts.calls.Load(); got != 2 {
 		t.Errorf("tts calls = %d, want 2 chunks", got)
+	}
+	if p := v.Parts[0]; p.Title != "A Test Post" {
+		t.Errorf("audio part should carry the article title: %+v", p)
 	}
 	sc, err := e.st.SessionCost(ctx, v.SessionID)
 	if err != nil {
@@ -176,6 +179,9 @@ func TestResharedLinkIsFree(t *testing.T) {
 	v := e.send(t, link("https://blog.example/a"))
 	if v.Status != Done || e.tts.calls.Load() != before {
 		t.Fatalf("second share: status %s, new tts calls %d", v.Status, e.tts.calls.Load()-before)
+	}
+	if p := v.Parts[0]; p.Title != "A Test Post" {
+		t.Errorf("cached audio should still carry the title: %+v", p)
 	}
 }
 

@@ -57,3 +57,17 @@ func DetectScript(s string) string {
 	}
 	return best
 }
+
+var reTitle = regexp.MustCompile(`(?m)^Title:[ \t]*(.+?)[ \t]*$`)
+
+// Title returns the page title from Jina's header ("Title: ..."), or "".
+func Title(md string) string {
+	head := md
+	if i := strings.Index(md, "Markdown Content:"); i >= 0 {
+		head = md[:i]
+	}
+	if m := reTitle.FindStringSubmatch(head); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}

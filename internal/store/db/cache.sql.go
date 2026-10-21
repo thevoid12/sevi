@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const getAudio = `-- name: GetAudio :one
@@ -38,7 +39,7 @@ func (q *Queries) GetAudio(ctx context.Context, arg GetAudioParams) (AudioCache,
 }
 
 const getPage = `-- name: GetPage :one
-SELECT id, url_hash, url, text, created_on, created_by, updated_on, updated_by FROM page_cache WHERE url_hash = ?
+SELECT id, url_hash, url, text, created_on, created_by, updated_on, updated_by, title FROM page_cache WHERE url_hash = ?
 `
 
 func (q *Queries) GetPage(ctx context.Context, urlHash string) (PageCache, error) {
@@ -53,6 +54,7 @@ func (q *Queries) GetPage(ctx context.Context, urlHash string) (PageCache, error
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.Title,
 	)
 	return i, err
 }
@@ -85,14 +87,15 @@ func (q *Queries) PutAudio(ctx context.Context, arg PutAudioParams) error {
 }
 
 const putPage = `-- name: PutPage :exec
-INSERT INTO page_cache (id, url_hash, url, text) VALUES (?, ?, ?, ?)
-ON CONFLICT (url_hash) DO UPDATE SET text = excluded.text
+INSERT INTO page_cache (id, url_hash, url, title, text) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (url_hash) DO UPDATE SET text = excluded.text, title = excluded.title
 `
 
 type PutPageParams struct {
 	ID      string
 	UrlHash string
 	Url     string
+	Title   sql.NullString
 	Text    string
 }
 
@@ -101,6 +104,7 @@ func (q *Queries) PutPage(ctx context.Context, arg PutPageParams) error {
 		arg.ID,
 		arg.UrlHash,
 		arg.Url,
+		arg.Title,
 		arg.Text,
 	)
 	return err

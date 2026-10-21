@@ -38,6 +38,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}", a.getJob)
 	mux.HandleFunc("GET /v1/sessions/{id}", a.getSession)
 	mux.HandleFunc("GET /v1/sessions/{id}/cost", a.getSessionCost)
+	mux.HandleFunc("POST /v1/threads", a.postThread)
 	mux.HandleFunc("GET /v1/audio/{message_id}", a.getAudio)
 	return a.middleware(mux)
 }
@@ -121,17 +122,42 @@ func (a *API) waitForChange(r *http.Request, job *core.Job, after int, max time.
 	}
 }
 
+// JSON shapes for the API. Explicit structs (not database rows) so the
+// contract is stable, snake_case, and free of SQL null wrappers.
 type sessionView struct {
-	Session  store.Session   `json:"session"`
-	Messages []store.Message `json:"messages"`
-	Cost     costView        `json:"cost"`
+	ID        string        `json:"id"`
+	Kind      string        `json:"kind"`
+	URL       string        `json:"url,omitempty"`
+	CreatedOn int64         `json:"created_on"`
+	Messages  []messageView `json:"messages"`
+	Cost      costView      `json:"cost"`
+}
+
+type messageView struct {
+	ID        string `json:"id"`
+	Role      string `json:"role"`
+	Text      string `json:"text,omitempty"`
+	AudioURL  string `json:"audio_url,omitempty"`
+	CreatedOn int64  `json:"created_on"`
 }
 
 type costView struct {
-	TotalUSD     float64           `json:"total_usd"`
-	Calls        int64             `json:"calls"`
-	UnknownCalls int64             `json:"unknown_calls"`
-	Ledger       []store.LedgerRow `json:"ledger,omitempty"`
+	TotalUSD     float64      `json:"total_usd"`
+	Calls        int64        `json:"calls"`
+	UnknownCalls int64        `json:"unknown_calls"`
+	Ledger       []ledgerView `json:"ledger,omitempty"`
+}
+
+type ledgerView struct {
+	Role         string   `json:"role"`
+	Provider     string   `json:"provider"`
+	Model        string   `json:"model"`
+	GenerationID string   `json:"generation_id,omitempty"`
+	Chars        int64    `json:"chars"`
+	InputUnits   *int64   `json:"input_units"`
+	OutputUnits  *int64   `json:"output_units"`
+	CostUSD      *float64 `json:"cost_usd"` // null = not priced yet
+	CreatedOn    int64    `json:"created_on"`
 }
 
 func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +177,15 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 		a.storeFail(w, r, err, "")
 		return
 	}
-	a.writeJSON(w, http.StatusOK, sessionView{Session: sess, Messages: msgs, Cost: cv})
+	v := sessionView{ID: sess.ID, Kind: sess.Kind, URL: sess.Url.String, CreatedOn: sess.CreatedOn, Messages: []messageView{}, Cost: cv}
+	for _, m := range msgs {
+		mv := messageView{ID: m.ID, Role: m.Role, Text: m.Text.String, CreatedOn: m.CreatedOn}
+		if m.AudioKey.Valid {
+			mv.AudioURL = "/v1/audio/" + m.ID
+		}
+		v.Messages = append(v.Messages, mv)
+	}
+	a.writeJSON(w, http.StatusOK, v)
 }
 
 func (a *API) getSessionCost(w http.ResponseWriter, r *http.Request) {
@@ -175,11 +209,49 @@ func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (costView
 	}
 	cv := costView{TotalUSD: sc.TotalUsd, Calls: sc.Calls, UnknownCalls: sc.UnknownCalls}
 	if withLedger {
-		if cv.Ledger, err = a.store.ListLedger(r.Context(), sessionID); err != nil {
+		rows, err := a.store.ListLedger(r.Context(), sessionID)
+		if err != nil {
 			return costView{}, err
+		}
+		for _, l := range rows {
+			lv := ledgerView{Role: l.Role, Provider: l.Provider, Model: l.Model, GenerationID: l.GenerationID.String, Chars: l.Chars, CreatedOn: l.CreatedOn}
+			if l.InputUnits.Valid {
+				lv.InputUnits = &l.InputUnits.Int64
+			}
+			if l.OutputUnits.Valid {
+				lv.OutputUnits = &l.OutputUnits.Int64
+			}
+			if l.CostUsd.Valid {
+				lv.CostUSD = &l.CostUsd.Float64
+			}
+			cv.Ledger = append(cv.Ledger, lv)
 		}
 	}
 	return cv, nil
+}
+
+// POST /v1/threads {adapter, thread_ref, session_id}: an adapter registers the
+// handle of a message it sent (e.g. Telegram chat_id:message_id) so that a
+// reply to it continues the session.
+func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
+	var t struct {
+		Adapter   string `json:"adapter"`
+		ThreadRef string `json:"thread_ref"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&t); err != nil || t.Adapter == "" || t.ThreadRef == "" || t.SessionID == "" {
+		a.fail(w, r, http.StatusBadRequest, event.Wrap("adapter, thread_ref and session_id are required.", err))
+		return
+	}
+	if _, err := a.store.GetSession(r.Context(), t.SessionID); err != nil {
+		a.storeFail(w, r, err, "I don't know that session.")
+		return
+	}
+	if err := a.store.PutThread(r.Context(), t.Adapter, t.ThreadRef, t.SessionID); err != nil {
+		a.storeFail(w, r, err, "")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // GET /v1/audio/{message_id} streams the MP3 (supports range requests for seeking).

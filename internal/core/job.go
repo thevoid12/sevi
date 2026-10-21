@@ -25,6 +25,7 @@ type Part struct {
 	Decision  string `json:"decision,omitempty"` // confirm: yes | no
 	MessageID string `json:"message_id,omitempty"`
 	Seconds   int    `json:"seconds,omitempty"`
+	Title     string `json:"title,omitempty"` // audio: the article's title
 }
 
 // Job is one unit of work started by a message. Adapters follow it by polling

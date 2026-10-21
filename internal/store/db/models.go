@@ -59,6 +59,7 @@ type PageCache struct {
 	CreatedBy sql.NullString
 	UpdatedOn sql.NullInt64
 	UpdatedBy sql.NullString
+	Title     sql.NullString
 }
 
 type Pending struct {

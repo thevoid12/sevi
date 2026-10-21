@@ -42,3 +42,13 @@ func TestSlug(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestTitle(t *testing.T) {
+	md := "Title: Cheap Satisfaction\n\nURL Source: https://x.com/a\n\nMarkdown Content:\nTitle: not this one\nBody"
+	if got := Title(md); got != "Cheap Satisfaction" {
+		t.Errorf("got %q", got)
+	}
+	if got := Title("no header here"); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}

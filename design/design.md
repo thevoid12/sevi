@@ -244,7 +244,7 @@ Out (later):
 - Logging: Uber `zap`, using the sugared logger (`zap.SugaredLogger`) everywhere. Logs go to stdout and to a rotating file. Errors are always logged with context (session id, adapter, operation, provider, model) and also land in a separate error log file.
 - Telegram runs by long polling locally (no public URL).
 - Answers are sent as audio plus text (text in the caption or a follow-up message).
-- Confirmation threshold: estimated cost over $0.30, configurable (`cost.confirm_over_usd`).
+- Confirmation threshold: estimated cost over $0.20, configurable (`cost.confirm_over_usd`).
 
 ## Cost confirmation flow
 

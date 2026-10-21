@@ -2,8 +2,8 @@
 SELECT * FROM page_cache WHERE url_hash = ?;
 
 -- name: PutPage :exec
-INSERT INTO page_cache (id, url_hash, url, text) VALUES (?, ?, ?, ?)
-ON CONFLICT (url_hash) DO UPDATE SET text = excluded.text;
+INSERT INTO page_cache (id, url_hash, url, title, text) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (url_hash) DO UPDATE SET text = excluded.text, title = excluded.title;
 
 -- name: GetAudio :one
 SELECT * FROM audio_cache WHERE url_hash = ? AND tts_model = ? AND voice = ?;

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"sevi/internal/adapter/telegram"
 	"sevi/internal/api"
 	"sevi/internal/blob"
 	"sevi/internal/config"
@@ -99,15 +101,22 @@ func run(cfgPath string, logTest bool, args []string) int {
 	return serve(ctx, log, cfg, cfgPath, st, bl)
 }
 
-// serve runs the HTTP API until interrupted, then drains running jobs.
+// serve runs the HTTP API (and the Telegram adapter, if enabled) until
+// interrupted, then drains running jobs.
 func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgPath string, st *store.Store, bl blob.Store) int {
 	c, err := newCore(cfg, st, bl, log)
 	if err != nil {
 		log.Errorw("could not start core", "err", err)
 		return 1
 	}
+	// Listen first so the adapter's first call to the API cannot race the server.
+	ln, err := net.Listen("tcp", cfg.App.Listen)
+	if err != nil {
+		log.Errorw("could not listen", "addr", cfg.App.Listen, "err", err)
+		c.Close()
+		return 1
+	}
 	srv := &http.Server{
-		Addr:              cfg.App.Listen,
 		Handler:           api.New(c, st, bl, log).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -122,7 +131,20 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 	)
 
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() { errc <- srv.Serve(ln) }()
+
+	var tgDone chan struct{}
+	if cfg.Telegram.Enabled {
+		token, _ := config.RequireKey("telegram.bot_token_env", cfg.Telegram.BotTokenEnv) // checked at startup
+		bot := telegram.New(telegram.Options{
+			Token:      token,
+			AllowedIDs: cfg.Telegram.AllowedUserIDs,
+			CoreURL:    coreURL(ln.Addr()),
+			ShowCost:   cfg.Cost.ShowInReply,
+		}, log)
+		tgDone = make(chan struct{})
+		go func() { defer close(tgDone); bot.Run(ctx) }()
+	}
 
 	select {
 	case err := <-errc:
@@ -132,6 +154,9 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 	case <-ctx.Done():
 	}
 	log.Infow("shutting down")
+	if tgDone != nil {
+		<-tgDone
+	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
@@ -139,4 +164,16 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 	}
 	c.Close()
 	return 0
+}
+
+// coreURL is the address adapters use to reach the API we just bound.
+func coreURL(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return "http://" + addr.String()
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }

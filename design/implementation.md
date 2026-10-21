@@ -74,15 +74,17 @@ Model roles in config (all separately configurable):
 
 ## Phase 4: Telegram adapter (blog to audio)
 
-- [ ] `internal/adapter/telegram`: long polling, config for bot token env var
-- [ ] Allowlist: only my Telegram user ID, everyone else is ignored and logged
-- [ ] Adapter talks to Core only through the HTTP API
-- [ ] Send a URL: status message edited in place with progress, then `sendAudio` with the stitched MP3 and text caption
-- [ ] Confirm prompt for long blogs (reply yes, or inline button)
-- [ ] Record each sent audio message in `thread_map(adapter, thread_ref, session_id)`
-- [ ] Cost footer in the caption (configurable on/off)
+- [x] `internal/adapter/telegram`: long polling, config for bot token env var
+- [x] Allowlist: only my Telegram user ID, everyone else is ignored and logged
+- [x] Adapter talks to Core only through the HTTP API
+- [x] Send a URL: status message edited in place with progress, then `sendAudio` with the stitched MP3 and text caption
+- [x] Confirm prompt for long blogs (reply yes, or inline button)
+- [x] Record each sent audio message in `thread_map(adapter, thread_ref, session_id)` via a new `POST /v1/threads` (the adapter only knows the Telegram message id after sending, so it registers it with Core)
+- [x] Plain HTTP Bot API client (no Telegram library): getUpdates, sendMessage, editMessageText, editMessageCaption, deleteMessage, answerCallbackQuery, sendAudio; the bot token is redacted from any error text
+- [x] `.env.example` lists every env var config.json refers to
+- [x] Cost footer: the audio is sent at once and the cost, which arrives ~30 s later, is edited into the caption (`cost.show_in_reply`)
 
-**Checkpoint 4 (usable today for the core goal):** share a real blog link in Telegram, watch the status update, receive the audio, play it with a seek bar. Cost shows in the caption. Message from a non-allowlisted account does nothing.
+**Checkpoint 4 (code and fake-server tests done; live test with the real bot pending) (usable today for the core goal):** share a real blog link in Telegram, watch the status update, receive the audio, play it with a seek bar. Cost shows in the caption. Message from a non-allowlisted account does nothing.
 
 ---
 
@@ -95,6 +97,7 @@ Model roles in config (all separately configurable):
 - [ ] Blog session context: cached blog text plus message history sent each turn
 - [ ] System prompt from config: short, conversational, spoken-style, answer in the language of the question; "longer" goes deeper
 - [ ] Answer is TTS'd with the `tts` model and returned as audio plus text
+- [ ] Optional blog description: when enabled in config, one cheap LLM call writes a one-or-two-line summary of the blog for the audio caption (off by default; the caption is otherwise just the title, length and cost)
 - [ ] Telegram: replying to a bot audio message (voice or text) continues that session via `thread_map`
 - [ ] Ledger rows for llm, stt, tts per turn; session cost updates
 

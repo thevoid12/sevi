@@ -28,6 +28,10 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	// A re-shared link with the same voice settings costs nothing.
 	if ca, err := c.Store.GetAudio(ctx, hash, tts.Model, tts.Voice); err == nil {
 		if _, err := c.Blob.Get(ctx, ca.AudioKey); err == nil {
+			title := ""
+			if p, err := c.Store.GetPage(ctx, hash); err == nil {
+				title = p.Title.String
+			}
 			msg, err := c.Store.AddMessage(ctx, sessionID, "assistant", "", ca.AudioKey)
 			if err != nil {
 				return event.Wrap("Something went wrong on my side.", err)
@@ -36,7 +40,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			zero := 0.0
 			j.emit(event.Event{Kind: event.Notice, Message: "I already had this one. No cost."})
 			j.emit(event.Event{Kind: event.Cost, Message: "Cost $0.00", CostUSD: &zero})
-			j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: int(ca.Seconds)}})
+			j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: int(ca.Seconds), Title: title}})
 			return nil
 		} else if !errors.Is(err, blob.ErrNotFound) {
 			return event.Wrap("Something went wrong on my side.", err)
@@ -46,7 +50,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 
-	text, err := c.pageText(ctx, j, pageURL, hash)
+	text, title, err := c.pageText(ctx, j, pageURL, hash)
 	if err != nil {
 		return err
 	}
@@ -112,7 +116,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 
 	j.setCostPending(true)
 	j.emit(event.Event{Kind: event.Done, Message: "Audio is ready."})
-	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds}})
+	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title}})
 
 	c.wg.Add(1)
 	go func() {
@@ -122,28 +126,28 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	return nil
 }
 
-// pageText returns the cleaned article text, cached by URL.
-func (c *Core) pageText(ctx context.Context, j *Job, pageURL, hash string) (string, error) {
+// pageText returns the cleaned article text and its title, cached by URL.
+func (c *Core) pageText(ctx context.Context, j *Job, pageURL, hash string) (text, title string, err error) {
 	log := logx.With(ctx, c.Log)
 	if p, err := c.Store.GetPage(ctx, hash); err == nil {
 		log.Infow("page cache hit", "url", pageURL)
-		return p.Text, nil
+		return p.Text, p.Title.String, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", event.Wrap("Something went wrong on my side.", err)
+		return "", "", event.Wrap("Something went wrong on my side.", err)
 	}
 	j.progress("Reading the article", 0, 0)
 	md, err := c.Markdown(ctx, pageURL)
 	if err != nil {
-		return "", event.Wrap("I couldn't read that page. The site may block readers, or the link may be wrong.", fmt.Errorf("fetch %s: %w", pageURL, err))
+		return "", "", event.Wrap("I couldn't read that page. The site may block readers, or the link may be wrong.", fmt.Errorf("fetch %s: %w", pageURL, err))
 	}
-	text := fetch.ToSpeakable(md)
+	text, title = fetch.ToSpeakable(md), fetch.Title(md)
 	if text == "" {
-		return "", event.Wrap("I couldn't find any readable text on that page.", fmt.Errorf("empty text from %s", pageURL))
+		return "", "", event.Wrap("I couldn't find any readable text on that page.", fmt.Errorf("empty text from %s", pageURL))
 	}
-	if err := c.Store.PutPage(ctx, pageURL, text); err != nil {
+	if err := c.Store.PutPage(ctx, pageURL, title, text); err != nil {
 		log.Errorw("could not cache page text", "url", pageURL, "err", err)
 	}
-	return text, nil
+	return text, title, nil
 }
 
 // savePartial keeps the audio of the chunks that did succeed, for later use.
