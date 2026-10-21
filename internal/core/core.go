@@ -21,6 +21,7 @@ import (
 	"sevi/internal/config"
 	"sevi/internal/event"
 	"sevi/internal/logx"
+	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
@@ -33,8 +34,10 @@ type Deps struct {
 	Blob     blob.Store
 	Log      *zap.SugaredLogger
 	TTS      provider.TTS
+	LLM      provider.LLM                                              // answers follow-ups; hears audio itself unless STT is set
+	STT      provider.LLM                                              // optional: when set, voice notes are transcribed by this first
 	Markdown func(ctx context.Context, pageURL string) (string, error) // page as markdown
-	Usage    func(ctx context.Context, generationID string) (provider.Usage, error)
+	Prices   *pricing.Book
 }
 
 type Core struct {
@@ -65,11 +68,19 @@ func (c *Core) Close() {
 }
 
 // Message is the platform-neutral input every adapter sends.
+//
+// Adapter, ThreadRef and ReplyToRef give threading without Core knowing the
+// platform: ThreadRef is the adapter's handle for this very message,
+// ReplyToRef its handle for the message this one replies to (both only
+// meaningful together with Adapter). SessionID continues a session explicitly
+// (e.g. from a web UI) and takes priority over ReplyToRef.
 type Message struct {
-	User      string `json:"user"`
-	ThreadRef string `json:"thread_ref"`
-	SessionID string `json:"session_id"`
-	Parts     []Part `json:"parts"`
+	User       string `json:"user"`
+	Adapter    string `json:"adapter"`
+	ThreadRef  string `json:"thread_ref"`
+	ReplyToRef string `json:"reply_to_ref"`
+	SessionID  string `json:"session_id"`
+	Parts      []Part `json:"parts"`
 }
 
 // Handle routes a message and starts a job for it. Input mistakes come back as
@@ -79,17 +90,22 @@ func (c *Core) Handle(ctx context.Context, m Message) (*Job, error) {
 	log := logx.With(ctx, c.Log)
 	jobCtx := reqid.With(c.ctx, reqid.From(ctx))
 
-	var pageURL string
-	var confirm *Part
+	var pageURL, text string
+	var confirm, voice *Part
 	for i, p := range m.Parts {
 		switch p.Type {
 		case "confirm":
 			confirm = &m.Parts[i]
 		case "url":
 			pageURL = strings.TrimSpace(p.URL)
+		case "audio":
+			voice = &m.Parts[i]
 		case "text":
-			if t := strings.TrimSpace(p.Text); strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
+			t := strings.TrimSpace(p.Text)
+			if strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
 				pageURL = t
+			} else {
+				text = t
 			}
 		}
 	}
@@ -110,8 +126,10 @@ func (c *Core) Handle(ctx context.Context, m Message) (*Job, error) {
 		return c.start(jobCtx, sess.ID, func(ctx context.Context, j *Job) error {
 			return c.blogJob(ctx, j, sess.ID, pageURL, false)
 		}), nil
+	case voice != nil || text != "":
+		return c.handleTurn(ctx, jobCtx, m, text, voice)
 	default:
-		return nil, event.Wrap("I can only turn blog links into audio so far. Send me a link.", errors.New("no supported part in message"))
+		return nil, event.Wrap("Send me a blog link, or ask a question by voice or text.", errors.New("no supported part in message"))
 	}
 }
 

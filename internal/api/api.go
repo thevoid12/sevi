@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -43,6 +44,9 @@ func (a *API) Handler() http.Handler {
 	return a.middleware(mux)
 }
 
+// maxMessageBytes bounds a request body: voice notes travel inside it as base64.
+const maxMessageBytes = 40 << 20
+
 // maxWait caps how long a request may block waiting for a job.
 const maxWait = 10 * time.Minute
 
@@ -51,7 +55,7 @@ const maxWait = 10 * time.Minute
 // or needs_confirmation) and returns the same shape with the result.
 func (a *API) postMessage(w http.ResponseWriter, r *http.Request) {
 	var m core.Message
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes))
 	if err := dec.Decode(&m); err != nil {
 		a.fail(w, r, http.StatusBadRequest, event.Wrap("The request body is not valid JSON.", err))
 		return
@@ -103,13 +107,13 @@ func (a *API) waitFor(r *http.Request, job *core.Job, max time.Duration) {
 	}
 }
 
-// waitForChange blocks until the job has events after seq, is completely
-// finished (including its cost lookup), or time is up.
+// waitForChange blocks until the job has events after seq, has finished, or
+// time is up.
 func (a *API) waitForChange(r *http.Request, job *core.Job, after int, max time.Duration) {
 	timeout := time.After(max)
 	for {
 		ch := job.Changed()
-		if v := job.View(after); len(v.Events) > 0 || (v.Status != core.Running && !v.CostPending) {
+		if v := job.View(after); len(v.Events) > 0 || v.Status != core.Running {
 			return
 		}
 		select {
@@ -135,7 +139,9 @@ type sessionView struct {
 
 type messageView struct {
 	ID        string `json:"id"`
+	ParentID  string `json:"parent_id,omitempty"`
 	Role      string `json:"role"`
+	Format    string `json:"format,omitempty"` // voice | text
 	Text      string `json:"text,omitempty"`
 	AudioURL  string `json:"audio_url,omitempty"`
 	CreatedOn int64  `json:"created_on"`
@@ -179,7 +185,7 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 	}
 	v := sessionView{ID: sess.ID, Kind: sess.Kind, URL: sess.Url.String, CreatedOn: sess.CreatedOn, Messages: []messageView{}, Cost: cv}
 	for _, m := range msgs {
-		mv := messageView{ID: m.ID, Role: m.Role, Text: m.Text.String, CreatedOn: m.CreatedOn}
+		mv := messageView{ID: m.ID, ParentID: m.ParentID.String, Role: m.Role, Format: m.Format.String, Text: m.Text.String, CreatedOn: m.CreatedOn}
 		if m.AudioKey.Valid {
 			mv.AudioURL = "/v1/audio/" + m.ID
 		}
@@ -230,24 +236,24 @@ func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (costView
 	return cv, nil
 }
 
-// POST /v1/threads {adapter, thread_ref, session_id}: an adapter registers the
-// handle of a message it sent (e.g. Telegram chat_id:message_id) so that a
-// reply to it continues the session.
+// POST /v1/threads {adapter, thread_ref, message_id}: an adapter registers its
+// handle for a message it sent (e.g. Telegram chat_id:message_id) so that a
+// reply to that message finds its conversation.
 func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
 	var t struct {
 		Adapter   string `json:"adapter"`
 		ThreadRef string `json:"thread_ref"`
-		SessionID string `json:"session_id"`
+		MessageID string `json:"message_id"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&t); err != nil || t.Adapter == "" || t.ThreadRef == "" || t.SessionID == "" {
-		a.fail(w, r, http.StatusBadRequest, event.Wrap("adapter, thread_ref and session_id are required.", err))
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&t); err != nil || t.Adapter == "" || t.ThreadRef == "" || t.MessageID == "" {
+		a.fail(w, r, http.StatusBadRequest, event.Wrap("adapter, thread_ref and message_id are required.", err))
 		return
 	}
-	if _, err := a.store.GetSession(r.Context(), t.SessionID); err != nil {
-		a.storeFail(w, r, err, "I don't know that session.")
+	if _, err := a.store.GetMessage(r.Context(), t.MessageID); err != nil {
+		a.storeFail(w, r, err, "I don't know that message.")
 		return
 	}
-	if err := a.store.PutThread(r.Context(), t.Adapter, t.ThreadRef, t.SessionID); err != nil {
+	if err := a.store.PutThread(r.Context(), t.Adapter, t.ThreadRef, t.MessageID); err != nil {
 		a.storeFail(w, r, err, "")
 		return
 	}
@@ -266,7 +272,11 @@ func (a *API) getAudio(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusNotFound, event.Wrap("That audio file is no longer available.", err))
 		return
 	}
-	w.Header().Set("Content-Type", "audio/mpeg")
+	mime := "audio/mpeg"
+	if strings.HasSuffix(msg.AudioKey.String, ".ogg") {
+		mime = "audio/ogg"
+	}
+	w.Header().Set("Content-Type", mime)
 	http.ServeContent(w, r, "audio.mp3", time.Unix(msg.CreatedOn, 0), bytes.NewReader(b))
 }
 

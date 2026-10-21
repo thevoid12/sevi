@@ -88,28 +88,57 @@ Model roles in config (all separately configurable):
 
 ---
 
-## Phase 5: Voice follow-ups on a blog (UC-1 complete)
+## Phase 5: Voice follow-ups, threads and reply format (UC-1 complete)
 
-- [ ] `LLM` interface + implementation using `openai-go` with configurable `base_url`, key, model
-- [ ] Audio input path over `net/http` for `models.stt` omitted; confirm the exact request format for the chosen model
-- [ ] `models.stt` present: STT interface + implementation, then text to the LLM
-- [ ] ffmpeg conversion of Telegram voice notes (OGG/Opus) to the format the provider needs
-- [ ] Blog session context: cached blog text plus message history sent each turn
-- [ ] System prompt from config: short, conversational, spoken-style, answer in the language of the question; "longer" goes deeper
-- [ ] Answer is TTS'd with the `tts` model and returned as audio plus text
-- [ ] Optional blog description: when enabled in config, one cheap LLM call writes a one-or-two-line summary of the blog for the audio caption (off by default; the caption is otherwise just the title, length and cost)
-- [ ] Telegram: replying to a bot audio message (voice or text) continues that session via `thread_map`
-- [ ] Ledger rows for llm, stt, tts per turn; session cost updates
+Schema (migration 004):
+- [x] `messages.parent_id` (the message replied to, NULL for a root), `messages.format` (`voice`|`text`), and the user's own voice notes stored as audio
+- [x] `thread_map` maps to `message_id` instead of `session_id` (it now covers every message, mine and the bot's)
+- [x] sqlc queries: all messages of a session in time order, thread lookup by adapter handle
 
-**Checkpoint 5:** play a blog, reply to the audio with a voice note asking a doubt, receive a spoken answer plus text. Reply to that answer with another doubt and it keeps context. Session cost sums all three roles.
+Core:
+- [x] `Message` gains `Adapter` and `ReplyToRef`; Core resolves `ReplyToRef` to the parent message, stores my message (transcript, audio, parent, time) and registers my own `ThreadRef` against it
+- [x] No reply target starts a new free chat session; a reply to an unknown message is refused with an explanation (it used to start a blank chat and the model invented the blog)
+- [x] A free chat tells the model it has no blog or document; the system prompt says to use only the material given
+- [x] Cost of each answer shown to the user: voice note caption or last line of a text answer, when `cost.show_in_reply` is on (4 decimals under a cent)
+- [x] Context builder: blog text (blog sessions) + every message of the session in time order, each with its timestamp, the replied-to message marked, then the new message
+- [x] `LLM` interface + implementation using `openai-go` with configurable `base_url`, key, model (`google/gemini-2.5-flash-lite`)
+- [x] Audio input path over `net/http` when `models.stt` is omitted; confirm the exact request format with one cheap test call before building on it
+- [x] `models.stt` present: STT interface + implementation, then text to the LLM
+- [x] ffmpeg conversion of Telegram voice notes (OGG/Opus) to the format the provider needs
+- [x] One structured call returns `{transcript, format, answer}`; system prompt from config: short, spoken-style, answer in the language of the question, "longer" goes deeper, and set `format` to the other one for this turn if the user explicitly asks for it (text when voice is default, voice when text is default)
+- [x] Config `reply.voice` (default true) sets the default format; `text` skips TTS entirely (no TTS cost)
+- [x] `format = voice`: answer is TTS'd and returned as an audio part; `format = text`: returned as a text part
+- [x] Ledger rows for llm, stt, tts per turn with cost computed from tokens x the stored price; the turn's cost is returned on the answer part
+- [ ] Optional blog description (deferred; not built in Phase 5): when enabled in config, one cheap LLM call writes a one-or-two-line summary of the blog for the audio caption (off by default)
+
+API and Telegram adapter:
+- [x] `POST /v1/threads` takes `message_id` instead of `session_id`
+- [x] Adapter sends voice notes and text with `reply_to_message` info (handle of the message replied to) and its own message handle
+- [x] Adapter sends a voice answer as a Telegram voice note (`sendVoice`, OGG/Opus; Core returns the answer audio in a format the adapter can send, ffmpeg converts the TTS output) with no caption, or a text answer as a text message, and registers the sent message handle with Core
+- [x] Status message while thinking ("Listening…", "Thinking…", "Recording the answer…")
+
+**Cost cache (added with Phase 5):**
+- [x] `model_prices` table (+ cache-read price, migrations 004/005) holding per-token prices and when they were fetched
+- [x] `cost.price_ttl_days` (default 7): older prices are refetched in one call that re-prices every stored model, with changes logged
+- [x] Cost = tokens x price everywhere: chat/STT from `usage` (audio and cached tokens priced at their own rates), speech from seconds x 25 + chars / 4.5
+- [x] No per-generation cost lookup; one real-charge comparison per model per refresh (warns over 10% and $0.001)
+- [x] Pre-run estimate from the stored speech price; the old ledger-average estimate removed
+- [x] Verified live: speech within 0.1% of the provider's charge, uncached chat exact; found and fixed provider-side prompt caching
+
+**Rate-limit retries (added after real use):**
+- [x] `provider.Retrying` wraps the chat and transcription clients: 429, 5xx and network errors are retried with growing waits (3s, 6s, 12s, 24s; `app.retries` = 4 in the example config); a rejected key or bad request is not retried
+- [x] The person sees "The AI service is busy. Trying again in N seconds…" instead of silence; only the successful attempt is billed
+- [ ] Optional fallback model for when the primary stays rate-limited (decision pending)
+
+**Checkpoint 5 (code, fake-server tests and a real API run done; live Telegram voice-note test pending):** play a blog, reply to the audio with a voice note asking a doubt and receive a spoken answer. Reply to that answer with a second doubt and it keeps context. Go back and reply to the *blog audio* again with a new question: the answer still knows what was asked and answered in between, and the replied-to message is the one it refers to. Ask "answer in text" in a voice note and get text with no TTS cost. Set `reply.voice` to false and get text. Session cost sums llm, stt and tts.
 
 ---
 
 ## Phase 6: Free chat and attachments (UC-2)
 
-- [ ] A voice or text message that is not a reply starts a free chat session
+- [x] A voice or text message that is not a reply starts a free chat session (built in Phase 5)
 - [ ] Any attached file is passed through to the LLM as session context; provider errors reported plainly
-- [ ] Same audio-in, audio-out loop as Phase 5
+- [x] Same audio-in, audio-out loop as Phase 5 (built in Phase 5)
 - [ ] File names and sizes logged, contents never logged
 
 **Checkpoint 6:** send a voice note with a PDF or image attached to the bot with no prior session, get a spoken answer, then continue the conversation by replying.
@@ -120,7 +149,8 @@ Model roles in config (all separately configurable):
 
 - [ ] Retries and clear user-facing error text for each failure class (fetch blocked, key out of credit, rate limit, ffmpeg missing)
 - [ ] Graceful shutdown; in-flight jobs finish or are marked failed
-- [ ] Cost backfill for ledger rows flagged `unknown_cost`
+- [ ] Cost backfill for ledger rows with a NULL cost (price was unavailable when the call ran)
+- [x] Retry a model call that hits a temporary upstream rate limit (done in Phase 5 after it hit twice in real use; see below)
 - [ ] Log review: no secrets, every error carries session, adapter, operation, model
 - [ ] Short `readme.md`: setup, `config.json` reference, running, where logs live
 

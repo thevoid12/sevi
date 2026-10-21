@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"sync"
 
 	"sevi/internal/audio"
 	"sevi/internal/blob"
@@ -13,13 +12,15 @@ import (
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
+	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/store"
 )
 
 // blogJob turns a blog URL into one audio message in the session:
 // audio cache -> cleaned text (cached) -> estimate/confirm -> TTS per chunk ->
-// stitch -> store. Cost lookup runs after the audio is delivered.
+// stitch -> store. Each chunk's cost is computed from tokens x the stored price
+// as it is made, so the cost is known the moment the audio is.
 func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, confirmed bool) error {
 	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
 	tts := c.Cfg.Models.TTS
@@ -32,7 +33,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			if p, err := c.Store.GetPage(ctx, hash); err == nil {
 				title = p.Title.String
 			}
-			msg, err := c.Store.AddMessage(ctx, sessionID, "assistant", "", ca.AudioKey)
+			msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: ca.AudioKey, Format: "voice"})
 			if err != nil {
 				return event.Wrap("Something went wrong on my side.", err)
 			}
@@ -40,7 +41,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			zero := 0.0
 			j.emit(event.Event{Kind: event.Notice, Message: "I already had this one. No cost."})
 			j.emit(event.Event{Kind: event.Cost, Message: "Cost $0.00", CostUSD: &zero})
-			j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: int(ca.Seconds), Title: title}})
+			j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: int(ca.Seconds), Title: title, Mime: "audio/mpeg", CostUSD: &zero}})
 			return nil
 		} else if !errors.Is(err, blob.ErrNotFound) {
 			return event.Wrap("Something went wrong on my side.", err)
@@ -58,10 +59,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	log.Infow("extracted", "url", pageURL, "chars", len([]rune(text)), "script", fetch.DetectScript(text), "chunks", len(chunks))
 
 	if !confirmed {
-		est, err := c.estimate(ctx, len([]rune(text)))
-		if err != nil {
-			return event.Wrap("Something went wrong on my side.", err)
-		}
+		est := c.estimate(ctx, len([]rune(text)))
 		log.Infow("estimate", "chars", est.Chars, "usd", est.USD, "minutes", est.Minutes, "source", est.Source, "threshold_usd", c.Cfg.Cost.ConfirmOverUSD)
 		if est.USD > c.Cfg.Cost.ConfirmOverUSD {
 			if _, err := c.Store.AddPending(ctx, sessionID, "confirm_tts", mustJSON(pendingConfirm{est.Chars, est.USD, est.Minutes})); err != nil {
@@ -74,7 +72,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	}
 
 	var pcm [][]byte
-	var ledgerIDs, genIDs []string
+	var total float64
 	for i, ch := range chunks {
 		j.progress(fmt.Sprintf("Generating audio %d/%d", i+1, len(chunks)), i+1, len(chunks))
 		sp, err := c.TTS.Synth(ctx, ch)
@@ -82,16 +80,12 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			c.savePartial(ctx, sessionID, pcm)
 			return event.Wrap(providerMessage(err, i+1, len(chunks)), fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), tts.Model, err))
 		}
-		id, err := c.Store.AddLedger(ctx, store.LedgerEntry{
-			SessionID: sessionID, Role: "tts", Provider: tts.Provider, Model: tts.Model,
-			GenerationID: sp.GenerationID, Chars: len([]rune(ch)),
-		})
+		cost, err := c.recordTTS(ctx, sessionID, sp, len([]rune(ch)))
 		if err != nil {
 			return event.Wrap("Something went wrong on my side.", err)
 		}
+		total += cost
 		pcm = append(pcm, sp.PCM)
-		ledgerIDs = append(ledgerIDs, id)
-		genIDs = append(genIDs, sp.GenerationID)
 	}
 
 	j.progress("Putting the audio together", 0, 0)
@@ -108,22 +102,48 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	if err := c.Store.PutAudio(ctx, hash, tts.Model, tts.Voice, audioKey, seconds); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
-	msg, err := c.Store.AddMessage(ctx, sessionID, "assistant", "", audioKey)
+	msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: audioKey, Format: "voice"})
 	if err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
-	log.Infow("audio ready", "url", pageURL, "seconds", seconds, "bytes", len(mp3), "chunks", len(chunks))
+	sc, err := c.Store.SessionCost(ctx, sessionID)
+	if err != nil {
+		return event.Wrap("Something went wrong on my side.", err)
+	}
+	cost := sc.TotalUsd
+	log.Infow("audio ready", "url", pageURL, "seconds", seconds, "bytes", len(mp3), "chunks", len(chunks), "cost_usd", cost, "unpriced_calls", sc.UnknownCalls)
 
-	j.setCostPending(true)
+	msgText := fmt.Sprintf("Cost $%.2f", cost)
+	if sc.UnknownCalls > 0 {
+		msgText += fmt.Sprintf(" (%d part(s) could not be priced)", sc.UnknownCalls)
+	}
+	j.emit(event.Event{Kind: event.Cost, Message: msgText, CostUSD: &cost})
 	j.emit(event.Event{Kind: event.Done, Message: "Audio is ready."})
-	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title}})
-
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.resolveCosts(ctx, j, sessionID, ledgerIDs, genIDs)
-	}()
+	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title, Mime: "audio/mpeg", CostUSD: &cost}})
 	return nil
+}
+
+// recordTTS writes the ledger row for one synthesized chunk with its cost
+// computed from tokens x the stored price, and returns that cost (0 if the
+// price is unknown, in which case the row's cost stays NULL).
+func (c *Core) recordTTS(ctx context.Context, sessionID string, sp provider.Speech, chars int) (float64, error) {
+	tts := c.Cfg.Models.TTS
+	in, out := pricing.TTSTokens(chars, audio.Duration(sp.PCM), tts.AudioTokensPerSec)
+	e := store.LedgerEntry{
+		SessionID: sessionID, Role: "tts", Provider: tts.Provider, Model: tts.Model,
+		GenerationID: sp.GenerationID, Chars: chars, InputUnits: in, OutputUnits: out,
+	}
+	var cost float64
+	if p, err := c.Prices.Get(ctx, tts.Provider, tts.Model); err != nil {
+		logx.With(ctx, c.Log).Errorw("no price for the tts model, cost left unknown", "model", tts.Model, "err", err)
+	} else {
+		cost = pricing.TTSCost(p, in, out)
+		e.CostUSD = &cost
+	}
+	if _, err := c.Store.AddLedger(ctx, e); err != nil {
+		return 0, fmt.Errorf("write ledger: %w", err)
+	}
+	return cost, nil
 }
 
 // pageText returns the cleaned article text and its title, cached by URL.
@@ -165,48 +185,6 @@ func (c *Core) savePartial(ctx context.Context, sessionID string, pcm [][]byte) 
 		return
 	}
 	log.Infow("partial audio kept", "key", "partial/"+sessionID+".mp3", "chunks_done", len(pcm))
-}
-
-// resolveCosts looks up each call's usage at the provider (slow: the record
-// can take a minute to appear), fills in the ledger, and emits the cost event.
-// A failed lookup leaves that row's cost NULL (unknown) for later backfill.
-func (c *Core) resolveCosts(ctx context.Context, j *Job, sessionID string, ledgerIDs, genIDs []string) {
-	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
-	usages := make([]provider.Usage, len(genIDs))
-	errs := make([]error, len(genIDs))
-	var wg sync.WaitGroup
-	for i, id := range genIDs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			usages[i], errs[i] = c.Usage(ctx, id)
-		}()
-	}
-	wg.Wait()
-
-	for i, u := range usages {
-		if errs[i] != nil {
-			log.Errorw("cost lookup failed, ledger cost left unknown", "generation", genIDs[i], "ledger_id", ledgerIDs[i], "err", errs[i])
-			continue
-		}
-		if err := c.Store.SetLedgerUsage(ctx, ledgerIDs[i], u.PromptTokens, u.CompletionTokens, u.CostUSD); err != nil {
-			log.Errorw("could not update ledger", "ledger_id", ledgerIDs[i], "err", err)
-		}
-	}
-	sc, err := c.Store.SessionCost(ctx, sessionID)
-	if err != nil {
-		log.Errorw("could not read session cost", "err", err)
-		j.setCostPending(false)
-		return
-	}
-	log.Infow("cost", "total_usd", sc.TotalUsd, "calls", sc.Calls, "unknown_calls", sc.UnknownCalls, "model", c.Cfg.Models.TTS.Model)
-	msg := fmt.Sprintf("Cost $%.2f", sc.TotalUsd)
-	if sc.UnknownCalls > 0 {
-		msg += fmt.Sprintf(" (%d part(s) not priced yet)", sc.UnknownCalls)
-	}
-	total := sc.TotalUsd
-	j.emit(event.Event{Kind: event.Cost, Message: msg, CostUSD: &total})
-	j.setCostPending(false)
 }
 
 func audioKeyFor(hash, model, voice string) string {

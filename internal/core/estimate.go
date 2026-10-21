@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+
+	"sevi/internal/pricing"
 )
 
 const defaultCharsPerMinute = 950
@@ -13,26 +15,26 @@ type Estimate struct {
 	Chars   int
 	USD     float64
 	Minutes float64
-	Source  string // "ledger" (observed average) or "config"
+	Source  string // "price" (stored model price) or "config" (fallback rate)
 }
 
-// estimate uses the observed average TTS cost per character from the ledger
-// and falls back to cost.est_usd_per_1k_chars until there is history.
-func (c *Core) estimate(ctx context.Context, chars int) (Estimate, error) {
+// estimate prices the speech from the model's stored per-token price and the
+// configured speaking rate. If no price can be had (offline and never fetched)
+// it falls back to cost.est_usd_per_1k_chars.
+func (c *Core) estimate(ctx context.Context, chars int) Estimate {
 	cfg := c.Cfg
-	perChar, ok, err := c.Store.TTSCostPerChar(ctx, cfg.Models.TTS.Model)
-	if err != nil {
-		return Estimate{}, err
-	}
-	src := "ledger"
-	if !ok {
-		perChar, src = cfg.Cost.EstUSDPer1KChar/1000, "config"
-	}
 	cpm := cfg.Models.TTS.CharsPerMinute
 	if cpm == 0 {
 		cpm = defaultCharsPerMinute
 	}
-	return Estimate{Chars: chars, USD: perChar * float64(chars), Minutes: float64(chars) / float64(cpm), Source: src}, nil
+	e := Estimate{Chars: chars, Minutes: float64(chars) / float64(cpm)}
+	if p, err := c.Prices.Get(ctx, cfg.Models.TTS.Provider, cfg.Models.TTS.Model); err == nil {
+		e.USD, e.Source = pricing.EstimateTTS(p, chars, cpm, cfg.Models.TTS.AudioTokensPerSec), "price"
+	} else {
+		c.Log.Warnw("no model price for the estimate, using cost.est_usd_per_1k_chars", "err", err)
+		e.USD, e.Source = cfg.Cost.EstUSDPer1KChar/1000*float64(chars), "config"
+	}
+	return e
 }
 
 func (e Estimate) String() string {

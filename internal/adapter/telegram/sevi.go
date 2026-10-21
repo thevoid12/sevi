@@ -22,12 +22,16 @@ type seviClient struct {
 }
 
 type part struct {
-	Type      string `json:"type"`
-	URL       string `json:"url,omitempty"`
-	Decision  string `json:"decision,omitempty"`
-	MessageID string `json:"message_id,omitempty"`
-	Seconds   int    `json:"seconds,omitempty"`
-	Title     string `json:"title,omitempty"`
+	Type      string   `json:"type"`
+	URL       string   `json:"url,omitempty"`
+	Decision  string   `json:"decision,omitempty"`
+	MessageID string   `json:"message_id,omitempty"`
+	Seconds   int      `json:"seconds,omitempty"`
+	Title     string   `json:"title,omitempty"`
+	Mime      string   `json:"mime,omitempty"`
+	Text      string   `json:"text,omitempty"`
+	Data      []byte   `json:"data,omitempty"`
+	CostUSD   *float64 `json:"cost_usd,omitempty"`
 }
 
 type evt struct {
@@ -39,16 +43,27 @@ type evt struct {
 }
 
 type jobView struct {
-	ID          string `json:"job_id"`
-	SessionID   string `json:"session_id"`
-	Status      string `json:"status"`
-	Events      []evt  `json:"events"`
-	Parts       []part `json:"parts"`
-	CostPending bool   `json:"cost_pending"`
+	ID        string `json:"job_id"`
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	Events    []evt  `json:"events"`
+	Parts     []part `json:"parts"`
 }
 
-func (c *seviClient) send(ctx context.Context, user, threadRef, sessionID string, parts ...part) (jobView, error) {
-	body, _ := json.Marshal(map[string]any{"user": user, "thread_ref": threadRef, "session_id": sessionID, "parts": parts})
+// outgoing is one message to Core. ThreadRef is this message's own handle and
+// ReplyToRef the handle of the message it replies to (Telegram chat_id:message_id).
+type outgoing struct {
+	User       string `json:"user"`
+	Adapter    string `json:"adapter"`
+	ThreadRef  string `json:"thread_ref,omitempty"`
+	ReplyToRef string `json:"reply_to_ref,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	Parts      []part `json:"parts"`
+}
+
+func (c *seviClient) send(ctx context.Context, m outgoing) (jobView, error) {
+	m.Adapter = adapterName
+	body, _ := json.Marshal(m)
 	var v jobView
 	err := c.do(ctx, "POST", "/v1/messages", body, &v)
 	return v, err
@@ -82,8 +97,8 @@ type sessionInfo struct {
 	URL string `json:"url"`
 }
 
-func (c *seviClient) registerThread(ctx context.Context, adapter, threadRef, sessionID string) error {
-	body, _ := json.Marshal(map[string]string{"adapter": adapter, "thread_ref": threadRef, "session_id": sessionID})
+func (c *seviClient) registerThread(ctx context.Context, adapter, threadRef, messageID string) error {
+	body, _ := json.Marshal(map[string]string{"adapter": adapter, "thread_ref": threadRef, "message_id": messageID})
 	return c.do(ctx, "POST", "/v1/threads", body, nil)
 }
 

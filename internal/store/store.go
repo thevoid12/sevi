@@ -135,7 +135,8 @@ func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
 	return r, notFound(err)
 }
 
-// LedgerEntry is a provider call that just succeeded; usage and cost come later.
+// LedgerEntry is a provider call that just succeeded. Units are tokens.
+// CostUSD is nil when the model's price could not be determined.
 type LedgerEntry struct {
 	SessionID    string
 	Role         string // llm | stt | tts
@@ -143,14 +144,23 @@ type LedgerEntry struct {
 	Model        string
 	GenerationID string
 	Chars        int
+	InputUnits   int
+	OutputUnits  int
+	CostUSD      *float64
 }
 
 func (s *Store) AddLedger(ctx context.Context, e LedgerEntry) (string, error) {
-	return s.q.InsertLedger(ctx, db.InsertLedgerParams{
+	p := db.InsertLedgerParams{
 		ID: newID(), SessionID: e.SessionID, Role: e.Role, Provider: e.Provider, Model: e.Model,
 		GenerationID: sql.NullString{String: e.GenerationID, Valid: e.GenerationID != ""},
 		Chars:        int64(e.Chars),
-	})
+		InputUnits:   sql.NullInt64{Int64: int64(e.InputUnits), Valid: true},
+		OutputUnits:  sql.NullInt64{Int64: int64(e.OutputUnits), Valid: true},
+	}
+	if e.CostUSD != nil {
+		p.CostUsd = sql.NullFloat64{Float64: *e.CostUSD, Valid: true}
+	}
+	return s.q.InsertLedger(ctx, p)
 }
 
 func (s *Store) SetLedgerUsage(ctx context.Context, id string, inTok, outTok int, costUSD float64) error {
@@ -196,12 +206,24 @@ type (
 	Pending = db.Pending
 )
 
-func (s *Store) AddMessage(ctx context.Context, sessionID, role, text, audioKey string) (Message, error) {
+// NewMessage describes a message to store. ParentID is the message it replied
+// to ("" for none); Format is "voice" or "text" ("" if not applicable).
+type NewMessage struct {
+	SessionID, Role, Text, AudioKey, ParentID, Format string
+}
+
+func nullStr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
+
+func (s *Store) AddMessage(ctx context.Context, m NewMessage) (Message, error) {
 	return s.q.CreateMessage(ctx, db.CreateMessageParams{
-		ID: newID(), SessionID: sessionID, Role: role,
-		Text:     sql.NullString{String: text, Valid: text != ""},
-		AudioKey: sql.NullString{String: audioKey, Valid: audioKey != ""},
+		ID: newID(), SessionID: m.SessionID, Role: m.Role, Text: nullStr(m.Text), AudioKey: nullStr(m.AudioKey),
+		ParentID: nullStr(m.ParentID), Format: nullStr(m.Format),
 	})
+}
+
+// SetMessageText fills in a message's text, e.g. the transcript of a voice note.
+func (s *Store) SetMessageText(ctx context.Context, id, text string) error {
+	return s.q.SetMessageText(ctx, db.SetMessageTextParams{Text: nullStr(text), ID: id})
 }
 
 func (s *Store) GetMessage(ctx context.Context, id string) (Message, error) {
@@ -228,27 +250,53 @@ func (s *Store) ResolvePending(ctx context.Context, id, status string) error {
 	return s.q.SetPendingStatus(ctx, db.SetPendingStatusParams{Status: status, ID: id})
 }
 
-// TTSCostPerChar is the observed average TTS cost per character for a model,
-// from ledger rows whose cost is known. ok is false when there is no history.
-func (s *Store) TTSCostPerChar(ctx context.Context, model string) (perChar float64, ok bool, err error) {
-	r, err := s.q.TTSCostTotals(ctx, model)
+// PutThread records that an adapter's handle for a message (e.g. Telegram
+// chat_id:message_id) is a stored message, so a reply to it finds its session.
+// Re-registering a handle moves it.
+func (s *Store) PutThread(ctx context.Context, adapter, threadRef, messageID string) error {
+	return s.q.PutThread(ctx, db.PutThreadParams{ID: newID(), Adapter: adapter, ThreadRef: threadRef, MessageID: messageID})
+}
+
+// MessageForThread returns the message an adapter handle points at, or ErrNotFound.
+func (s *Store) MessageForThread(ctx context.Context, adapter, threadRef string) (Message, error) {
+	r, err := s.q.GetThreadMessage(ctx, db.GetThreadMessageParams{Adapter: adapter, ThreadRef: threadRef})
+	return r, notFound(err)
+}
+
+// ModelPrice is a model's per-token price (USD) and when it was last confirmed.
+type ModelPrice struct {
+	Prompt, Completion, Audio, CacheRead float64
+	FetchedOn                            int64
+}
+
+func (s *Store) GetPrice(ctx context.Context, provider, model string) (ModelPrice, error) {
+	r, err := s.q.GetPrice(ctx, db.GetPriceParams{Provider: provider, Model: model})
 	if err != nil {
-		return 0, false, err
+		return ModelPrice{}, notFound(err)
 	}
-	if r.TotalChars == 0 || r.TotalUsd == 0 {
-		return 0, false, nil
-	}
-	return r.TotalUsd / float64(r.TotalChars), true, nil
+	return ModelPrice{Prompt: r.PromptUsd, Completion: r.CompletionUsd, Audio: r.AudioUsd, CacheRead: r.CacheReadUsd, FetchedOn: r.FetchedOn}, nil
 }
 
-// PutThread records that an adapter's conversation handle (e.g. a Telegram
-// chat_id:message_id) belongs to a session. Re-registering a handle moves it.
-func (s *Store) PutThread(ctx context.Context, adapter, threadRef, sessionID string) error {
-	return s.q.PutThread(ctx, db.PutThreadParams{ID: newID(), Adapter: adapter, ThreadRef: threadRef, SessionID: sessionID})
+func (s *Store) PutPrice(ctx context.Context, provider, model string, p ModelPrice) error {
+	return s.q.UpsertPrice(ctx, db.UpsertPriceParams{
+		ID: newID(), Provider: provider, Model: model,
+		PromptUsd: p.Prompt, CompletionUsd: p.Completion, AudioUsd: p.Audio, CacheReadUsd: p.CacheRead, FetchedOn: p.FetchedOn,
+	})
 }
 
-// SessionForThread returns the session an adapter handle belongs to, or ErrNotFound.
-func (s *Store) SessionForThread(ctx context.Context, adapter, threadRef string) (string, error) {
-	r, err := s.q.GetThread(ctx, db.GetThreadParams{Adapter: adapter, ThreadRef: threadRef})
-	return r.SessionID, notFound(err)
+// PricedModels lists the models of a provider that have a stored price.
+func (s *Store) PricedModels(ctx context.Context, provider string) ([]string, error) {
+	return s.q.ListPricedModels(ctx, provider)
+}
+
+// LatestCostedCall is the newest ledger row of a model that has both a
+// provider generation id and a cost; ErrNotFound if there is none.
+func (s *Store) LatestCostedCall(ctx context.Context, provider, model string) (LedgerRow, error) {
+	r, err := s.q.LatestCostedLedger(ctx, db.LatestCostedLedgerParams{Provider: provider, Model: model})
+	return r, notFound(err)
+}
+
+// SetMessageAudio records where a message's audio is stored.
+func (s *Store) SetMessageAudio(ctx context.Context, id, audioKey string) error {
+	return s.q.SetMessageAudio(ctx, db.SetMessageAudioParams{AudioKey: nullStr(audioKey), ID: id})
 }

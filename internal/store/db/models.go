@@ -48,6 +48,23 @@ type Message struct {
 	CreatedBy sql.NullString
 	UpdatedOn sql.NullInt64
 	UpdatedBy sql.NullString
+	ParentID  sql.NullString
+	Format    sql.NullString
+}
+
+type ModelPrice struct {
+	ID            string
+	Provider      string
+	Model         string
+	PromptUsd     float64
+	CompletionUsd float64
+	AudioUsd      float64
+	FetchedOn     int64
+	CreatedOn     int64
+	CreatedBy     sql.NullString
+	UpdatedOn     sql.NullInt64
+	UpdatedBy     sql.NullString
+	CacheReadUsd  float64
 }
 
 type PageCache struct {
@@ -88,7 +105,7 @@ type ThreadMap struct {
 	ID        string
 	Adapter   string
 	ThreadRef string
-	SessionID string
+	MessageID string
 	CreatedOn int64
 	CreatedBy sql.NullString
 	UpdatedOn sql.NullInt64

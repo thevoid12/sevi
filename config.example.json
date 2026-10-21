@@ -3,41 +3,47 @@
     "listen": "127.0.0.1:8787",
     "data_dir": "data",
     "output_dir": "output",
-    "retries": 2
+    "retries": 4
   },
-
   "providers": {
-    "openrouter": { "base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY" },
-    "jina": { "base_url": "https://r.jina.ai", "key_env": "JINA_API_KEY" }
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "key_env": "OPENROUTER_API_KEY"
+    },
+    "jina": {
+      "base_url": "https://r.jina.ai",
+      "key_env": "JINA_API_KEY"
+    }
   },
-
   "models": {
     "llm": {
       "provider": "openrouter",
-      "model": "",
-      "system_prompt": "You are answering by voice. Reply in short, conversational speech of about 30 to 60 seconds. No markdown, lists or symbols. Answer in the language of the question. If asked for more, go deeper."
+      "model": "google/gemini-3.5-flash-lite",
+      "system_prompt": "You are a spoken study companion. Answer the user's question about the blog or topic in short, conversational speech of about 30 to 60 seconds. Plain words only: no markdown, lists, tables or symbols. Answer in the language of the question. If asked to go deeper, do. If something is not in the material, say so rather than guessing."
     },
     "tts": {
       "provider": "openrouter",
       "model": "google/gemini-3.8-flash-tts",
       "voice": "Kore",
       "chunk_chars": 3000,
-      "chars_per_minute": 950
+      "chars_per_minute": 950,
+      "audio_tokens_per_sec": 25
     }
   },
-
-  "cost": {
-    "confirm_over_usd": 0.20,
-    "est_usd_per_1k_chars": 0.014,
-    "show_in_reply": true
+  "reply": {
+    "voice": true
   },
-
+  "cost": {
+    "confirm_over_usd": 0.2,
+    "est_usd_per_1k_chars": 0.014,
+    "show_in_reply": true,
+    "price_ttl_days": 7
+  },
   "telegram": {
     "enabled": false,
     "bot_token_env": "TELEGRAM_BOT_TOKEN",
     "allowed_user_ids": []
   },
-
   "log": {
     "level": "info",
     "dir": "logs",

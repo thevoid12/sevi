@@ -16,6 +16,7 @@ type Config struct {
 	App       App                 `json:"app"`
 	Providers map[string]Provider `json:"providers"`
 	Models    Models              `json:"models"`
+	Reply     Reply               `json:"reply"`
 	Cost      Cost                `json:"cost"`
 	Telegram  Telegram            `json:"telegram"`
 	Log       Log                 `json:"log"`
@@ -60,12 +61,27 @@ type TTS struct {
 	// CharsPerMinute is how much text becomes one minute of speech; used only
 	// to estimate audio length before synthesis. 0 means the default (950).
 	CharsPerMinute int `json:"chars_per_minute"`
+	// AudioTokensPerSec converts seconds of generated speech to billed output
+	// tokens (Gemini TTS bills 25 per second). 0 means 25.
+	AudioTokensPerSec float64 `json:"audio_tokens_per_sec"`
+}
+
+// Reply controls how answers to follow-up questions are delivered.
+type Reply struct {
+	// Voice is the default: true answers with a voice note, false with text.
+	// A user can ask for the other format in a message, for that turn only.
+	Voice bool `json:"voice"`
 }
 
 type Cost struct {
-	ConfirmOverUSD  float64 `json:"confirm_over_usd"`
-	EstUSDPer1KChar float64 `json:"est_usd_per_1k_chars"` // used until the ledger has history
+	ConfirmOverUSD float64 `json:"confirm_over_usd"`
+	// EstUSDPer1KChar is the fallback price for the pre-run estimate when the
+	// model's price is not known (offline and never fetched).
+	EstUSDPer1KChar float64 `json:"est_usd_per_1k_chars"`
 	ShowInReply     bool    `json:"show_in_reply"`
+	// PriceTTLDays is how long a fetched model price is trusted before it is
+	// fetched again (and checked against a real charge). 0 means 7.
+	PriceTTLDays int `json:"price_ttl_days"`
 }
 
 type Telegram struct {
@@ -134,10 +150,14 @@ func (c *Config) validate() error {
 	if c.Models.TTS.ChunkChars <= 0 {
 		errs = append(errs, errors.New("models.tts.chunk_chars must be > 0"))
 	}
+	if c.Cost.PriceTTLDays < 0 || c.Models.TTS.AudioTokensPerSec < 0 {
+		errs = append(errs, errors.New("cost.price_ttl_days and models.tts.audio_tokens_per_sec must be >= 0"))
+	}
 	if c.Models.TTS.CharsPerMinute < 0 {
 		errs = append(errs, errors.New("models.tts.chars_per_minute must be >= 0"))
 	}
 	needProvider("models.llm.provider", c.Models.LLM.Provider)
+	need("models.llm.model", c.Models.LLM.Model)
 	if c.Models.STT != nil {
 		needProvider("models.stt.provider", c.Models.STT.Provider)
 	}

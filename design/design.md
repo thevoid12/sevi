@@ -81,28 +81,71 @@ GET  /v1/audio/{message_id}  the MP3 (range requests, so seeking works)
 
 ## Sessions and threading
 
-One session = one conversation with a context.
+A session is one conversation: a blog and every question asked about it, or a
+free chat. Every message is stored with its time (`created_on`), its role, its
+text (the transcript for voice) and a `parent_id`: the message it was a reply to.
 
-- Blog session context: cleaned blog text + history.
-- Free chat context: history + attachments.
-- Telegram mapping: every audio message the bot sends is recorded as
-  `(chat_id, message_id) -> session_id`. Replying to it, by voice or text,
-  continues that session. A message that isn't a reply starts a free chat.
+- **Context for any turn = the whole session in time order**, each message with
+  its timestamp, plus the blog text for a blog session. It does not matter
+  which message I replied to: all questions about a blog form a single thread,
+  so a question asked from an old message still sees everything said since.
+- The message I replied to is marked in the prompt ("the user is replying to
+  this message: ..."), so the model knows what "that" or "the second point"
+  refers to.
+- `parent_id` is kept for that marker and for a web UI that shows the reply
+  structure; it does not limit what the model sees.
+- Transcripts are stored, so later turns send text, not old audio again. The
+  user's own voice notes are also kept as audio for replay.
+- **Thread map.** `thread_map` maps an adapter's handle for *every* message,
+  both mine and the bot's (Telegram `chat_id:message_id`), to a message id, so
+  a reply to any of them finds its session.
+  - Core registers my message itself when it arrives (it knows my handle and
+    which handle I replied to).
+  - The adapter registers the bot's messages after sending them, through
+    `POST /v1/threads {adapter, thread_ref, message_id}`.
+  - A message that is not a reply starts a new free chat with no blog. A reply
+    to a message sevi does not know (e.g. an audio sent before threading was
+    tracked) is **refused with an explanation**, not answered in a blank chat:
+    the person meant a particular blog, and an answer without it would be a
+    guess presented as a reply. (This happened once: the model, given no blog,
+    invented one.)
+  - A free chat tells the model plainly that it has no blog or document and
+    must not invent one; the system prompt also says to use only the material
+    given and to say so when the answer is not in it.
 - Web: sessions are explicit (list, open, continue).
-- Long context: when history outgrows the model window, summarize older turns.
-  Not needed for v1.
+- Long context: when a session outgrows the model window (1M tokens on the
+  chosen model, so far away), summarize older turns. Not needed for v1.
+
+## Reply format (voice or text)
+
+Config: `reply.voice` (default `true`). One LLM call returns structured JSON:
+
+```json
+{ "transcript": "what the user said (if audio)", "format": "voice | text", "answer": "..." }
+```
+
+- The system prompt tells the model the default format (from `reply.voice`) and
+  to override it for this turn only when the NEW message explicitly asks for the
+  other format; a request in an earlier message does not carry over (without
+  this rule a model treated one "answer as text" as a standing preference). The model decides, so it works in any language and phrasing.
+- `reply.voice = false`: default text, and the same rule in reverse: an explicit
+  request for audio gets a voice note for that turn.
+- `format = voice`: the answer is spoken with the TTS model and sent as audio;
+  `format = text`: sent as a text message, and no TTS cost is incurred.
+- The blog link flow is unaffected: a link always produces audio.
 
 ## Pipeline
 
 ```
 blog:      URL -> Jina Reader markdown -> toSpeakable -> chunk -> TTS -> audio
-follow-up: voice -> STT -> LLM(context + history) -> answer text -> TTS -> audio
+follow-up: voice -> LLM(whole session in time order + blog text, hears the audio) -> {transcript, format, answer}
+           format=voice: answer -> TTS -> audio     format=text: answer as text
 ```
 
 - v0 already does the blog path. Reuse its fetch, cleanup and chunking.
 - Answers should be written to be spoken: short, no markdown, no tables.
-  System prompt enforces it. Also send the text alongside the audio (cheap,
-  useful for scanning and copying).
+  System prompt enforces it. For text answers the same brevity applies unless
+  asked otherwise.
 - Gemini can take audio input, so STT and LLM may be one call with an audio-capable
   model. Keep STT as its own interface so it can be split.
 
@@ -144,34 +187,51 @@ by name and adds only a model ID. Config is grouped by concern (`app`,
   never logged. Multi-user encrypted key storage is later.
 - Changing a model is a config edit.
 
+## Model call retries
+
+Chat and transcription calls go through `provider.Retrying`. A 429 (shared
+upstream pools such as Google AI Studio behind OpenRouter rate-limit in bursts of
+several seconds), a 5xx or a network error is retried with growing waits
+(3s, 6s, 12s, 24s; `app.retries` extra attempts, 4 in the example config). A
+rejected key, an out-of-credit account or a bad request is not retried. While
+waiting, the job emits a progress event so the person sees "trying again in N
+seconds" instead of silence. The speech client retries the same way.
+
 ## Cost tracking
 
-- Every provider call writes a ledger row:
-  `session_id, role (llm|stt|tts), provider, model, input_units, output_units, cost_usd, ts`.
-- OpenRouter returns usage and, for chat, cost in the response; v0 already
-  collects generation IDs, which can be looked up for exact cost. Where a
-  provider returns no cost, leave `cost_usd` null and flag the row `unknown_cost`; cost can be
-  backfilled later (e.g. OpenRouter's generation lookup).
-- Session cost = sum of its rows. Adapters can show it in a reply footer; web
-  shows per-session and per-day totals.
-- Cost levers: cheap TTS model, chunk size, skip TTS for very long blogs unless
-  confirmed, cache audio by URL hash so re-sharing a link costs nothing.
+Costs are **computed, not looked up**: tokens x a stored per-token price. There
+is no provider call per generation.
 
-## Table conventions
-
-Every table has the same leading `id` and trailing audit columns:
-
-| Column | Meaning |
-|---|---|
-| `id` | `TEXT` primary key, a UUID (v7, time-ordered) generated by the app |
-| `created_on` | unix seconds, set on insert |
-| `created_by` | who created the row; `NULL` until accounts exist |
-| `updated_on` | `NULL` until the first update, then set by a database trigger on every update |
-| `updated_by` | who last updated the row; `NULL` until accounts exist |
-
-Natural keys (URL hash, adapter + thread ref, URL + model + voice) are
-`UNIQUE` constraints, not primary keys. Foreign keys point at `id`. Accounts
-come later; they will fill the `*_by` columns without a schema change.
+- **Prices** live in the `model_prices` table (prompt, completion, audio input,
+  cache-read; USD per token) with the time they were fetched. They come from
+  one public call that lists every model (OpenRouter `GET /models?output_modalities=all`,
+  which includes speech models). A price is trusted for `cost.price_ttl_days`
+  (default 7). When one is older, the next cost calculation refetches the list,
+  re-prices every stored model in that one call, and logs any price that changed.
+  If the refetch fails, the stored price is used and the failure is logged.
+- **Tokens** come from the response for chat and transcription (`usage`, including
+  the audio-token and cached-token parts). A speech call returns no usage, so its
+  tokens are derived: output = seconds of audio produced x 25 (Gemini TTS bills
+  25 per second; measured 25.0 on real runs), input = characters / 4.5.
+- **Cached prompt tokens.** Providers discount a repeated prompt prefix (the blog
+  text resent every turn); those tokens are priced at the cache-read rate.
+  The usage report does not say whether cached tokens were text or audio, so a
+  turn that cached audio is priced a little high (under $0.0001 in practice).
+- **Ledger.** Every provider call is a `ledger` row written as it happens, with
+  tokens and cost, so a job's cost is known the moment it finishes. A row whose
+  price could not be found keeps a NULL cost and is counted as "unpriced".
+- **Check against reality.** On each price refresh, for each model, the latest
+  ledger row is compared with what the provider says it charged (one lookup per
+  model per refresh, in the background). A gap over 10% and over a tenth of a
+  cent is logged as a warning; otherwise it is logged as a match.
+- Measured on real calls: speech within 0.1% of the provider's charge, chat
+  exact for uncached turns.
+- **Estimate before a long job** = the stored speech price x tokens implied by the
+  character count and the speaking rate. Real example: 8,722 characters estimated
+  $0.125, billed $0.121. If no price is available the fallback is
+  `cost.est_usd_per_1k_chars`.
+- Cost levers: cheap TTS model, text answers (no speech), the audio cache
+  (re-shared links cost nothing), short answers by prompt.
 
 ## Storage
 
@@ -240,8 +300,12 @@ Out (later):
 - Web UI: after Telegram works. Core API and cost ledger are shaped so it needs no core changes.
 - Attachments (UC-2): any file type is accepted and passed through to the LLM; the provider/model decides what it can read. Provider size limits apply, and a provider rejection is reported to the user as a plain error.
 - Everything tunable lives in `config.json`: models, voice, chunk size, thresholds, prompts, paths, log settings, allowlist, rates.
-- Cost: recorded from what the provider returns (OpenRouter reports it). No price table. For the pre-run estimate, use the observed average TTS cost per character from the ledger, falling back to a `cost.est_usd_per_1k_chars` value in config until there is history.
+- Cost: computed as tokens x a stored per-token price, with the price refetched at most every `cost.price_ttl_days` (7) and checked against one real charge per refresh. No per-call provider lookup.
 - Logging: Uber `zap`, using the sugared logger (`zap.SugaredLogger`) everywhere. Logs go to stdout and to a rotating file. Errors are always logged with context (session id, adapter, operation, provider, model) and also land in a separate error log file.
+- LLM model: `google/gemini-3.5-flash-lite` (USD per 1M tokens: text in 0.30, out 2.50, audio in 0.30, cached in 0.03). Chosen over the cheaper `gemini-2.5-flash-lite` (0.10 / 0.40), which was rate-limited upstream far too often on OpenRouter (2 of 11 calls); the 3.5 model's costs matched the provider's charge to the digit. A turn costs about $0.001 in LLM, against about $0.003 to speak the answer. Newer non-lite Gemini models (3.6 to 3.8) cost 2.5 to 3 times more. Swapping is a one-line config change. The `:batch` variants are asynchronous and not usable for chat.
+- One thread per blog: the model sees the whole session in time order with timestamps whichever message is replied to; the replied-to message is marked in the prompt. A message that is not a reply starts a new free chat; a reply to an unknown message is refused with an explanation.
+- Spoken answers go out as Telegram voice notes (OGG/Opus, native waveform), voice only with no text caption; the blog audio stays a normal audio file.
+- Reply format: `reply.voice` in config (default true); the model overrides it per turn when the user explicitly asks for text.
 - Telegram runs by long polling locally (no public URL).
 - Answers are sent as audio plus text (text in the caption or a follow-up message).
 - Confirmation threshold: estimated cost over $0.20, configurable (`cost.confirm_over_usd`).
@@ -254,7 +318,7 @@ URL -> fetch + clean -> estimate (chars -> est. TTS cost, est. minutes)
   above threshold:  reply "~12k words, ~$0.04, ~80 min. Go ahead?"  -> yes -> run
 ```
 
-Estimate = chars x observed cost per char (ledger average, else `cost.est_usd_per_1k_chars`) and chars / spoken-chars-per-minute.
+Estimate = tokens implied by the character count and speaking rate x the stored speech price (fallback `cost.est_usd_per_1k_chars`); minutes = chars / spoken-chars-per-minute.
 Pending confirmations are stored on the session. Ledger records the actual
 cost after the run so estimate quality can be checked.
 
@@ -331,7 +395,7 @@ internal/adapter/telegram/  long polling, calls Core only over HTTP
 
 - `sessions(id, kind blog|chat, url, created_at)`
 - `messages(id, session_id, role user|assistant, text, audio_path, created_at)`
-- `thread_map(adapter, thread_ref, session_id)` — Telegram `(chat_id, message_id)` of each bot audio message
+- `thread_map(adapter, thread_ref, message_id)` — Telegram `chat_id:message_id` of every message, mine and the bot's, mapped to a stored message
 - `ledger(id, session_id, role llm|stt|tts, provider, model, input_units, output_units, cost_usd, estimated, ts)`
 - `page_cache(url_hash, url, text, fetched_at)` and `audio_cache(url_hash, tts_model, voice, audio_key, seconds)`
 - `pending(session_id, kind confirm, payload, created_at)`

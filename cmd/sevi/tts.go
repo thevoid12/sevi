@@ -31,7 +31,7 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, st 
 	if err != nil {
 		return err
 	}
-	view, seen, err := follow(ctx, job, 0)
+	view, _, err := follow(ctx, job, 0)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, st 
 		if err != nil {
 			return err
 		}
-		if view, seen, err = follow(ctx, job, 0); err != nil {
+		if view, _, err = follow(ctx, job, 0); err != nil {
 			return err
 		}
 	}
@@ -76,16 +76,11 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, st 
 		}
 		fmt.Println("wrote", out)
 	}
-	// The cost lookup finishes after the audio is delivered; wait for it here.
-	if _, _, err := follow(ctx, job, seen); err != nil {
-		return err
-	}
 	return writeCostReport(ctx, st, cfg, view.SessionID, pageURL)
 }
 
 // follow prints a job's events (those after seq `seen`) as they arrive and
-// returns when the job stops running and its cost (if any) is resolved, along
-// with the last seq printed.
+// returns when the job stops running, along with the last seq printed.
 func follow(ctx context.Context, job *core.Job, seen int) (core.JobView, int, error) {
 	for {
 		ch := job.Changed()
@@ -99,7 +94,7 @@ func follow(ctx context.Context, job *core.Job, seen int) (core.JobView, int, er
 				fmt.Println(e.Message)
 			}
 		}
-		if v.Status != core.Running && !v.CostPending {
+		if v.Status != core.Running {
 			return v, seen, nil
 		}
 		select {

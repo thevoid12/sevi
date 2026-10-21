@@ -28,10 +28,22 @@ repeat until the concept is clear.
   3. Audio is delivered back. Either posted in the same Discord/Telegram
      channel (cheap, no extra infra), or tracked on a website that stores the
      request and the audio response.
-  4. If I don't understand something, I open a thread on that blog. I ask a
-     follow-up question by voice (voice note, transcribed to text), the LLM
-     answers with the blog as context, and the answer comes back as audio.
-  5. I keep going back and forth in the thread until the concept is clear.
+  4. If I don't understand something, I reply to a message (the blog audio,
+     one of my earlier voice notes, or one of the bot's answers) with a
+     follow-up question by voice or text. The LLM answers with the blog and
+     that thread of messages as context.
+  5. I keep going back and forth until the concept is clear. I can reply to
+     any earlier message, not just the latest one; it all stays one thread.
+- **One thread per blog.** All questions about a blog, whichever message I
+  reply to, form a single conversation. The model sees the whole blog
+  conversation in time order, each message with when it was sent, so it
+  understands what happened and when. The message I reply to tells the model
+  which one I am referring to ("replying to: ...").
+- **Reply format.** Answers come back as a voice note by default (a config
+  setting, on by default). If voice is switched off, answers are text. Even
+  with voice on, if I ask in the message for a text answer ("answer in text",
+  "write it out"), I get text for that turn. The blog's own audio is always
+  audio.
 - **Expected outcome:** I consume a blog and clear my doubts without reading or
   typing anything.
 - **Constraint: pluggable chat layer.** Where the link is shared must be

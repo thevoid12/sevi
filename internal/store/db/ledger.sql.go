@@ -11,8 +11,8 @@ import (
 )
 
 const insertLedger = `-- name: InsertLedger :one
-INSERT INTO ledger (id, session_id, role, provider, model, generation_id, chars)
-VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+INSERT INTO ledger (id, session_id, role, provider, model, generation_id, chars, input_units, output_units, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
 
 type InsertLedgerParams struct {
@@ -23,6 +23,9 @@ type InsertLedgerParams struct {
 	Model        string
 	GenerationID sql.NullString
 	Chars        int64
+	InputUnits   sql.NullInt64
+	OutputUnits  sql.NullInt64
+	CostUsd      sql.NullFloat64
 }
 
 func (q *Queries) InsertLedger(ctx context.Context, arg InsertLedgerParams) (string, error) {
@@ -34,6 +37,9 @@ func (q *Queries) InsertLedger(ctx context.Context, arg InsertLedgerParams) (str
 		arg.Model,
 		arg.GenerationID,
 		arg.Chars,
+		arg.InputUnits,
+		arg.OutputUnits,
+		arg.CostUsd,
 	)
 	var id string
 	err := row.Scan(&id)
@@ -122,24 +128,4 @@ func (q *Queries) SetLedgerUsage(ctx context.Context, arg SetLedgerUsageParams) 
 		arg.ID,
 	)
 	return err
-}
-
-const tTSCostTotals = `-- name: TTSCostTotals :one
-SELECT
-    CAST(COALESCE(SUM(cost_usd), 0) AS REAL)  AS total_usd,
-    CAST(COALESCE(SUM(chars), 0) AS INTEGER)  AS total_chars
-FROM ledger
-WHERE role = 'tts' AND model = ? AND cost_usd IS NOT NULL
-`
-
-type TTSCostTotalsRow struct {
-	TotalUsd   float64
-	TotalChars int64
-}
-
-func (q *Queries) TTSCostTotals(ctx context.Context, model string) (TTSCostTotalsRow, error) {
-	row := q.db.QueryRowContext(ctx, tTSCostTotals, model)
-	var i TTSCostTotalsRow
-	err := row.Scan(&i.TotalUsd, &i.TotalChars)
-	return i, err
 }

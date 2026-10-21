@@ -9,41 +9,45 @@ import (
 	"context"
 )
 
-const getThread = `-- name: GetThread :one
-SELECT id, adapter, thread_ref, session_id, created_on, created_by, updated_on, updated_by FROM thread_map WHERE adapter = ? AND thread_ref = ?
+const getThreadMessage = `-- name: GetThreadMessage :one
+SELECT m.id, m.session_id, m.role, m.text, m.audio_key, m.created_on, m.created_by, m.updated_on, m.updated_by, m.parent_id, m.format FROM thread_map t JOIN messages m ON m.id = t.message_id
+WHERE t.adapter = ? AND t.thread_ref = ?
 `
 
-type GetThreadParams struct {
+type GetThreadMessageParams struct {
 	Adapter   string
 	ThreadRef string
 }
 
-func (q *Queries) GetThread(ctx context.Context, arg GetThreadParams) (ThreadMap, error) {
-	row := q.db.QueryRowContext(ctx, getThread, arg.Adapter, arg.ThreadRef)
-	var i ThreadMap
+func (q *Queries) GetThreadMessage(ctx context.Context, arg GetThreadMessageParams) (Message, error) {
+	row := q.db.QueryRowContext(ctx, getThreadMessage, arg.Adapter, arg.ThreadRef)
+	var i Message
 	err := row.Scan(
 		&i.ID,
-		&i.Adapter,
-		&i.ThreadRef,
 		&i.SessionID,
+		&i.Role,
+		&i.Text,
+		&i.AudioKey,
 		&i.CreatedOn,
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.ParentID,
+		&i.Format,
 	)
 	return i, err
 }
 
 const putThread = `-- name: PutThread :exec
-INSERT INTO thread_map (id, adapter, thread_ref, session_id) VALUES (?, ?, ?, ?)
-ON CONFLICT (adapter, thread_ref) DO UPDATE SET session_id = excluded.session_id
+INSERT INTO thread_map (id, adapter, thread_ref, message_id) VALUES (?, ?, ?, ?)
+ON CONFLICT (adapter, thread_ref) DO UPDATE SET message_id = excluded.message_id
 `
 
 type PutThreadParams struct {
 	ID        string
 	Adapter   string
 	ThreadRef string
-	SessionID string
+	MessageID string
 }
 
 func (q *Queries) PutThread(ctx context.Context, arg PutThreadParams) error {
@@ -51,7 +55,7 @@ func (q *Queries) PutThread(ctx context.Context, arg PutThreadParams) error {
 		arg.ID,
 		arg.Adapter,
 		arg.ThreadRef,
-		arg.SessionID,
+		arg.MessageID,
 	)
 	return err
 }

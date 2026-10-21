@@ -16,7 +16,7 @@ const (
 	NeedsConfirmation Status = "needs_confirmation"
 )
 
-// Part is one piece of input or output. Input types: url, confirm.
+// Part is one piece of input or output. Input types: url, text, audio, confirm.
 // Output types: audio, text.
 type Part struct {
 	Type      string `json:"type"`
@@ -26,6 +26,10 @@ type Part struct {
 	MessageID string `json:"message_id,omitempty"`
 	Seconds   int    `json:"seconds,omitempty"`
 	Title     string `json:"title,omitempty"` // audio: the article's title
+	Mime      string `json:"mime,omitempty"`  // audio: audio/mpeg or audio/ogg; input audio: the sender's type
+	Data      []byte `json:"data,omitempty"`  // input audio bytes (base64 in JSON)
+	// CostUSD on an output part is what producing it cost (a blog: the whole session so far).
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // Job is one unit of work started by a message. Adapters follow it by polling
@@ -34,13 +38,12 @@ type Job struct {
 	ID        string
 	SessionID string
 
-	mu          sync.Mutex
-	status      Status
-	events      []event.Event
-	parts       []Part
-	costPending bool
-	finishedAt  time.Time
-	changed     chan struct{} // closed and replaced on every change
+	mu         sync.Mutex
+	status     Status
+	events     []event.Event
+	parts      []Part
+	finishedAt time.Time
+	changed    chan struct{} // closed and replaced on every change
 }
 
 func newJob(id, sessionID string) *Job {
@@ -49,19 +52,18 @@ func newJob(id, sessionID string) *Job {
 
 // JobView is a consistent snapshot of a job.
 type JobView struct {
-	ID          string        `json:"job_id"`
-	SessionID   string        `json:"session_id"`
-	Status      Status        `json:"status"`
-	Events      []event.Event `json:"events"`
-	Parts       []Part        `json:"parts,omitempty"`
-	CostPending bool          `json:"cost_pending"`
+	ID        string        `json:"job_id"`
+	SessionID string        `json:"session_id"`
+	Status    Status        `json:"status"`
+	Events    []event.Event `json:"events"`
+	Parts     []Part        `json:"parts,omitempty"`
 }
 
 // View returns the job state with only the events whose seq is > after.
 func (j *Job) View(after int) JobView {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	v := JobView{ID: j.ID, SessionID: j.SessionID, Status: j.status, Parts: j.parts, CostPending: j.costPending, Events: []event.Event{}}
+	v := JobView{ID: j.ID, SessionID: j.SessionID, Status: j.status, Parts: j.parts, Events: []event.Event{}}
 	for _, e := range j.events {
 		if e.Seq > after {
 			v.Events = append(v.Events, e)
@@ -112,19 +114,9 @@ func (j *Job) setStatus(s Status, parts []Part) {
 	j.notify()
 }
 
-func (j *Job) setCostPending(v bool) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.costPending = v
-	if !v {
-		j.finishedAt = time.Now()
-	}
-	j.notify()
-}
-
 // prunable: finished long ago and nothing more will be added.
 func (j *Job) prunable(maxAge time.Duration) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.status != Running && !j.costPending && time.Since(j.finishedAt) > maxAge
+	return j.status != Running && time.Since(j.finishedAt) > maxAge
 }

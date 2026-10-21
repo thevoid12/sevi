@@ -11,7 +11,8 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO messages (id, session_id, role, text, audio_key) VALUES (?, ?, ?, ?, ?) RETURNING id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by
+INSERT INTO messages (id, session_id, role, text, audio_key, parent_id, format)
+VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format
 `
 
 type CreateMessageParams struct {
@@ -20,6 +21,8 @@ type CreateMessageParams struct {
 	Role      string
 	Text      sql.NullString
 	AudioKey  sql.NullString
+	ParentID  sql.NullString
+	Format    sql.NullString
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error) {
@@ -29,6 +32,8 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		arg.Role,
 		arg.Text,
 		arg.AudioKey,
+		arg.ParentID,
+		arg.Format,
 	)
 	var i Message
 	err := row.Scan(
@@ -41,12 +46,14 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.ParentID,
+		&i.Format,
 	)
 	return i, err
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by FROM messages WHERE id = ?
+SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE id = ?
 `
 
 func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
@@ -62,12 +69,14 @@ func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.ParentID,
+		&i.Format,
 	)
 	return i, err
 }
 
 const listMessagesBySession = `-- name: ListMessagesBySession :many
-SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by FROM messages WHERE session_id = ? ORDER BY created_on, id
+SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE session_id = ? ORDER BY created_on, id
 `
 
 func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) ([]Message, error) {
@@ -89,6 +98,8 @@ func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) (
 			&i.CreatedBy,
 			&i.UpdatedOn,
 			&i.UpdatedBy,
+			&i.ParentID,
+			&i.Format,
 		); err != nil {
 			return nil, err
 		}
@@ -101,4 +112,32 @@ func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const setMessageAudio = `-- name: SetMessageAudio :exec
+UPDATE messages SET audio_key = ? WHERE id = ?
+`
+
+type SetMessageAudioParams struct {
+	AudioKey sql.NullString
+	ID       string
+}
+
+func (q *Queries) SetMessageAudio(ctx context.Context, arg SetMessageAudioParams) error {
+	_, err := q.db.ExecContext(ctx, setMessageAudio, arg.AudioKey, arg.ID)
+	return err
+}
+
+const setMessageText = `-- name: SetMessageText :exec
+UPDATE messages SET text = ? WHERE id = ?
+`
+
+type SetMessageTextParams struct {
+	Text sql.NullString
+	ID   string
+}
+
+func (q *Queries) SetMessageText(ctx context.Context, arg SetMessageTextParams) error {
+	_, err := q.db.ExecContext(ctx, setMessageText, arg.Text, arg.ID)
+	return err
 }

@@ -1,6 +1,7 @@
 -- name: PutThread :exec
-INSERT INTO thread_map (id, adapter, thread_ref, session_id) VALUES (?, ?, ?, ?)
-ON CONFLICT (adapter, thread_ref) DO UPDATE SET session_id = excluded.session_id;
+INSERT INTO thread_map (id, adapter, thread_ref, message_id) VALUES (?, ?, ?, ?)
+ON CONFLICT (adapter, thread_ref) DO UPDATE SET message_id = excluded.message_id;
 
--- name: GetThread :one
-SELECT * FROM thread_map WHERE adapter = ? AND thread_ref = ?;
+-- name: GetThreadMessage :one
+SELECT m.* FROM thread_map t JOIN messages m ON m.id = t.message_id
+WHERE t.adapter = ? AND t.thread_ref = ?;

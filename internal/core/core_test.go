@@ -2,10 +2,13 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"sevi/internal/config"
 	"sevi/internal/event"
 	"sevi/internal/httpx"
+	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
@@ -35,12 +39,67 @@ func (f *fakeTTS) Synth(_ context.Context, _ string) (provider.Speech, error) {
 	return provider.Speech{PCM: make([]byte, 48000), GenerationID: fmt.Sprintf("gen-%d", n)}, nil
 }
 
+// fakeLLM returns scripted replies and remembers every request it got.
+type fakeLLM struct {
+	mu      sync.Mutex
+	replies []string // JSON texts returned in order; the last repeats
+	reqs    []provider.ChatRequest
+	err     error
+	usage   provider.ChatUsage
+	rateLim int // the first N calls fail with a 429
+}
+
+func (f *fakeLLM) Chat(_ context.Context, req provider.ChatRequest) (provider.ChatResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, req)
+	if len(f.reqs) <= f.rateLim {
+		return provider.ChatResult{}, &httpx.StatusError{Host: "openrouter.ai", Code: 429, Status: "429", Body: "temporarily rate-limited upstream"}
+	}
+	if f.err != nil {
+		return provider.ChatResult{}, f.err
+	}
+	i := len(f.reqs) - 1
+	if i >= len(f.replies) {
+		i = len(f.replies) - 1
+	}
+	return provider.ChatResult{Text: f.replies[i], GenerationID: fmt.Sprintf("llm-gen-%d", len(f.reqs)), Usage: f.usage}, nil
+}
+
+func (f *fakeLLM) lastRequest() provider.ChatRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reqs[len(f.reqs)-1]
+}
+
+func (f *fakeLLM) requestText(i int) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var b strings.Builder
+	for _, p := range f.reqs[i].Parts {
+		b.WriteString(p.Text)
+	}
+	return b.String()
+}
+
+func replyJSON(transcript, format, answer string) string {
+	b, _ := json.Marshal(map[string]string{"transcript": transcript, "format": format, "answer": answer})
+	return string(b)
+}
+
 type env struct {
 	core *Core
 	tts  *fakeTTS
+	llm  *fakeLLM
 	st   *store.Store
 	bl   blob.Disk
 }
+
+// Prices used by the tests (USD per token).
+var (
+	testTTSPrice = provider.Price{Prompt: 1e-6, Completion: 1e-4}
+	testLLMPrice = provider.Price{Prompt: 1e-7, Completion: 4e-7, Audio: 3e-7}
+)
 
 // newEnv builds a Core on a temp database with fake network. Each blog page is
 // ~5700 chars so it splits into 2 chunks of 3000.
@@ -58,20 +117,28 @@ func newEnv(t *testing.T, confirmOverUSD, estPer1K float64) *env {
 	t.Cleanup(func() { st.Close() })
 	bl := blob.Disk{Root: dir + "/blobs"}
 	cfg := &config.Config{
-		Models: config.Models{TTS: config.TTS{Provider: "p", Model: "m", Voice: "v", ChunkChars: 3000}},
-		Cost:   config.Cost{ConfirmOverUSD: confirmOverUSD, EstUSDPer1KChar: estPer1K},
+		Models: config.Models{
+			TTS: config.TTS{Provider: "p", Model: "m", Voice: "v", ChunkChars: 3000},
+			LLM: config.LLM{Provider: "p", Model: "llm-m", SystemPrompt: "Be brief."},
+		},
+		Reply: config.Reply{Voice: true},
+		Cost:  config.Cost{ConfirmOverUSD: confirmOverUSD, EstUSDPer1KChar: estPer1K},
 	}
 	tts := &fakeTTS{}
+	llm := &fakeLLM{replies: []string{replyJSON("", "voice", "An answer.")}, usage: provider.ChatUsage{PromptTokens: 1000, AudioTokens: 0, CompletionTokens: 50}}
+	prices := &pricing.Book{
+		Store: st, TTL: time.Hour, Log: log,
+		Sources: map[string]pricing.Source{"p": func(context.Context) (map[string]provider.Price, error) {
+			return map[string]provider.Price{"m": testTTSPrice, "llm-m": testLLMPrice}, nil
+		}},
+	}
 	page := "Title: A Test Post\n\nMarkdown Content:\n" + strings.Repeat("This is a sentence that will be read aloud. ", 130) // ~5700 chars
 	c := New(Deps{
-		Cfg: cfg, Store: st, Blob: bl, Log: log, TTS: tts,
+		Cfg: cfg, Store: st, Blob: bl, Log: log, TTS: tts, LLM: llm, Prices: prices,
 		Markdown: func(context.Context, string) (string, error) { return page, nil },
-		Usage: func(context.Context, string) (provider.Usage, error) {
-			return provider.Usage{CostUSD: 0.05, PromptTokens: 10, CompletionTokens: 100}, nil
-		},
 	})
 	t.Cleanup(c.Close)
-	return &env{core: c, tts: tts, st: st, bl: bl}
+	return &env{core: c, tts: tts, llm: llm, st: st, bl: bl}
 }
 
 func (e *env) send(t *testing.T, m Message) JobView {
@@ -84,14 +151,15 @@ func (e *env) send(t *testing.T, m Message) JobView {
 	return waitJob(t, j, false)
 }
 
-// waitJob waits until the job stops running (and, if cost is true, until its cost resolves).
-func waitJob(t *testing.T, j *Job, cost bool) JobView {
+// waitJob waits until the job stops running. (cost is unused now that costs are
+// known when the job finishes; kept so call sites read the same.)
+func waitJob(t *testing.T, j *Job, _ bool) JobView {
 	t.Helper()
 	deadline := time.After(30 * time.Second)
 	for {
 		ch := j.Changed()
 		v := j.View(0)
-		if v.Status != Running && (!cost || !v.CostPending) {
+		if v.Status != Running {
 			return v
 		}
 		select {
@@ -104,14 +172,14 @@ func waitJob(t *testing.T, j *Job, cost bool) JobView {
 
 func link(u string) Message { return Message{Parts: []Part{{Type: "url", URL: u}}} }
 
-func TestShortBlogRunsAndCostsResolve(t *testing.T) {
+func TestShortBlogIsPricedWhenItFinishes(t *testing.T) {
 	e := newEnv(t, 100, 0.014) // threshold far above estimate
 	ctx := reqid.With(context.Background(), "r")
 	j, err := e.core.Handle(ctx, link("https://blog.example/a"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := waitJob(t, j, true)
+	v := waitJob(t, j, false)
 	if v.Status != Done || len(v.Parts) != 1 || v.Parts[0].Type != "audio" {
 		t.Fatalf("want done with one audio part, got %+v", v)
 	}
@@ -125,8 +193,21 @@ func TestShortBlogRunsAndCostsResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sc.Calls != 2 || sc.UnknownCalls != 0 || sc.TotalUsd < 0.099 || sc.TotalUsd > 0.101 {
-		t.Errorf("session cost = %+v, want 2 priced calls totalling 0.10", sc)
+	// Each fake chunk is 1 s of speech = 25 output tokens; input tokens from its length.
+	var want float64
+	rows, _ := e.st.ListLedger(ctx, v.SessionID)
+	for _, r := range rows {
+		in, out := pricing.TTSTokens(int(r.Chars), 1, 0)
+		want += pricing.TTSCost(testTTSPrice, in, out)
+		if int(r.InputUnits.Int64) != in || int(r.OutputUnits.Int64) != out {
+			t.Errorf("ledger tokens %d/%d, want %d/%d", r.InputUnits.Int64, r.OutputUnits.Int64, in, out)
+		}
+	}
+	if sc.Calls != 2 || sc.UnknownCalls != 0 || math.Abs(sc.TotalUsd-want) > 1e-9 || want == 0 {
+		t.Errorf("session cost = %+v, want 2 priced calls totalling %v", sc, want)
+	}
+	if v.Parts[0].CostUSD == nil || math.Abs(*v.Parts[0].CostUSD-want) > 1e-9 {
+		t.Errorf("audio part should carry the session cost %v: %+v", want, v.Parts[0].CostUSD)
 	}
 	var sawProgress, sawCost bool
 	for _, ev := range v.Events {
