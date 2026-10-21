@@ -60,15 +60,15 @@ Model roles in config (all separately configurable):
 
 ## Phase 3: Core pipeline and HTTP API (blog sessions)
 
-- [ ] `internal/core`: input routing (url, text, audio, file parts), blog session pipeline (fetch, clean, TTS, stitch, store)
-- [ ] `internal/api`: `POST /v1/messages`, `GET /v1/sessions/:id`, `GET /v1/sessions/:id/cost`, localhost bind from config
-- [ ] `internal/event`: `Event` type and `UserError{Message, Cause}`; Core emits events, never logs-as-UX; raw causes only go to zap with the request id
-- [ ] Progress events for long jobs (fetching, chunk i/N, stitching) exposed to adapters (poll or stream); error events carry a `ref` request id
-- [ ] Rough estimate step: characters to estimated cost and minutes (ledger average, else `cost.est_usd_per_1k_chars`)
-- [ ] Confirm flow: above `cost.confirm_over_usd`, return an estimate and a pending confirmation; run only after a yes
-- [ ] Request-id middleware and structured request logging
+- [x] `internal/core`: input routing (url, text, audio, file parts), blog session pipeline (fetch, clean, TTS, stitch, store)
+- [x] `internal/api`: `POST /v1/messages`, `GET /v1/sessions/:id`, `GET /v1/sessions/:id/cost`, localhost bind from config
+- [x] `internal/event`: `Event` type and `UserError{Message, Cause}`; Core emits events, never logs-as-UX; raw causes only go to zap with the request id
+- [x] Progress events for long jobs (fetching, chunk i/N, stitching) exposed to adapters (poll or stream); error events carry a `ref` request id
+- [x] Rough estimate step: characters to estimated cost and minutes (ledger average, else `cost.est_usd_per_1k_chars`)
+- [x] Confirm flow: above `cost.confirm_over_usd`, return an estimate and a pending confirmation; run only after a yes
+- [x] Request-id middleware and structured request logging
 
-**Checkpoint 3:** with `curl`, POST a URL: short blog returns audio and cost; a long blog returns an estimate, then confirming runs it. Failure cases (bad URL, blocked fetch, provider error) return a readable message and are in `error.log`.
+**Checkpoint 3 (done, awaiting review):** with `curl`, POST a URL: short blog returns audio and cost; a long blog returns an estimate, then confirming runs it. Failure cases (bad URL, blocked fetch, provider error) return a readable message and are in `error.log`.
 
 ---
 

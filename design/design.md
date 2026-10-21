@@ -51,15 +51,33 @@ GET  /v1/sessions/:id/cost       per-call ledger
   Telegram `chat_id + replied-to message_id`. Core stores a mapping
   `(adapter, thread_ref) -> session_id`. This is how threading works without
   Core knowing what a Telegram reply is.
+- Messages start **jobs**. A job is one unit of work; adapters follow it:
+
+```
+POST /v1/messages            -> 202 {job_id, session_id, status, events}
+POST /v1/messages?wait=1     -> blocks until the job stops running, same shape + parts
+GET  /v1/jobs/{id}?after=N&wait=S   events with seq > N; long-polls up to S seconds
+GET  /v1/audio/{message_id}  the MP3 (range requests, so seeking works)
+```
+
+  Job status: `running`, `done`, `failed`, `needs_confirmation`. A job is
+  `done` as soon as the audio is ready; its cost arrives later as a `cost`
+  event (`cost_pending` is true until then), because the provider's usage
+  record can lag by up to a minute. Jobs are held in memory (lost on restart);
+  sessions, messages and the ledger are in SQLite.
+- Input parts: `url` (a text part that is just a link also counts), and
+  `confirm` with `decision: yes|no` plus the `session_id` being answered.
+  Output parts: `audio` (`message_id`, `seconds`) and `text`.
 - Input routing in Core:
-  - `url` part with no session: **blog session**. Fetch, clean, TTS, return audio.
-  - `audio`/`text` part inside an existing session: **follow-up**. STT if audio,
-    LLM with session context, TTS the answer.
-  - `audio`/`text` with no session: **free chat session** (UC-2).
-  - `file` parts attach to the session as extra context.
-- Long jobs (a long blog is many TTS chunks) are async: Core returns a job and
-  the adapter gets the result by callback or poll. v1 can hold the request open
-  if the adapter tolerates it.
+  - `url` part: a new **blog session**. Fetch, clean, estimate, TTS, return audio.
+  - Estimated cost over `cost.confirm_over_usd`: the job ends `needs_confirmation`
+    with a `confirm` event ("about 8.7k characters, roughly 9 minutes, around
+    $0.13. Go ahead?") and a row in `pending`. A `confirm` message resumes or
+    cancels it.
+  - `audio`/`text` inside an existing session (follow-ups) and free chat: Phase 5-6.
+- Errors over HTTP: `{"error": {"message": <safe text>, "ref": <request id>}}`.
+  Every response carries `X-Request-Id`; a caller may supply one.
+- The API binds to `app.listen` (localhost) with no authentication in v1.
 
 ## Sessions and threading
 

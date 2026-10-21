@@ -57,6 +57,9 @@ type TTS struct {
 	Model      string `json:"model"`
 	Voice      string `json:"voice"`
 	ChunkChars int    `json:"chunk_chars"`
+	// CharsPerMinute is how much text becomes one minute of speech; used only
+	// to estimate audio length before synthesis. 0 means the default (950).
+	CharsPerMinute int `json:"chars_per_minute"`
 }
 
 type Cost struct {
@@ -130,6 +133,9 @@ func (c *Config) validate() error {
 	need("models.tts.voice", c.Models.TTS.Voice)
 	if c.Models.TTS.ChunkChars <= 0 {
 		errs = append(errs, errors.New("models.tts.chunk_chars must be > 0"))
+	}
+	if c.Models.TTS.CharsPerMinute < 0 {
+		errs = append(errs, errors.New("models.tts.chars_per_minute must be >= 0"))
 	}
 	needProvider("models.llm.provider", c.Models.LLM.Provider)
 	if c.Models.STT != nil {

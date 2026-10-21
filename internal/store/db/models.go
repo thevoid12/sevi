@@ -61,6 +61,18 @@ type PageCache struct {
 	UpdatedBy sql.NullString
 }
 
+type Pending struct {
+	ID        string
+	SessionID string
+	Kind      string
+	Payload   string
+	Status    string
+	CreatedOn int64
+	CreatedBy sql.NullString
+	UpdatedOn sql.NullInt64
+	UpdatedBy sql.NullString
+}
+
 type Session struct {
 	ID        string
 	Kind      string

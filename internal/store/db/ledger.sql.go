@@ -123,3 +123,23 @@ func (q *Queries) SetLedgerUsage(ctx context.Context, arg SetLedgerUsageParams) 
 	)
 	return err
 }
+
+const tTSCostTotals = `-- name: TTSCostTotals :one
+SELECT
+    CAST(COALESCE(SUM(cost_usd), 0) AS REAL)  AS total_usd,
+    CAST(COALESCE(SUM(chars), 0) AS INTEGER)  AS total_chars
+FROM ledger
+WHERE role = 'tts' AND model = ? AND cost_usd IS NOT NULL
+`
+
+type TTSCostTotalsRow struct {
+	TotalUsd   float64
+	TotalChars int64
+}
+
+func (q *Queries) TTSCostTotals(ctx context.Context, model string) (TTSCostTotalsRow, error) {
+	row := q.db.QueryRowContext(ctx, tTSCostTotals, model)
+	var i TTSCostTotalsRow
+	err := row.Scan(&i.TotalUsd, &i.TotalChars)
+	return i, err
+}

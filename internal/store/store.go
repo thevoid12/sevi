@@ -187,3 +187,53 @@ func (s *Store) GetAudio(ctx context.Context, urlHash, ttsModel, voice string) (
 func (s *Store) PutAudio(ctx context.Context, urlHash, ttsModel, voice, audioKey string, seconds int) error {
 	return s.q.PutAudio(ctx, db.PutAudioParams{ID: newID(), UrlHash: urlHash, TtsModel: ttsModel, Voice: voice, AudioKey: audioKey, Seconds: int64(seconds)})
 }
+
+type (
+	Message = db.Message
+	Pending = db.Pending
+)
+
+func (s *Store) AddMessage(ctx context.Context, sessionID, role, text, audioKey string) (Message, error) {
+	return s.q.CreateMessage(ctx, db.CreateMessageParams{
+		ID: newID(), SessionID: sessionID, Role: role,
+		Text:     sql.NullString{String: text, Valid: text != ""},
+		AudioKey: sql.NullString{String: audioKey, Valid: audioKey != ""},
+	})
+}
+
+func (s *Store) GetMessage(ctx context.Context, id string) (Message, error) {
+	r, err := s.q.GetMessage(ctx, id)
+	return r, notFound(err)
+}
+
+func (s *Store) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
+	return s.q.ListMessagesBySession(ctx, sessionID)
+}
+
+func (s *Store) AddPending(ctx context.Context, sessionID, kind, payload string) (Pending, error) {
+	return s.q.CreatePending(ctx, db.CreatePendingParams{ID: newID(), SessionID: sessionID, Kind: kind, Payload: payload})
+}
+
+// OpenPending returns the newest unanswered question for a session, or ErrNotFound.
+func (s *Store) OpenPending(ctx context.Context, sessionID string) (Pending, error) {
+	r, err := s.q.GetOpenPending(ctx, sessionID)
+	return r, notFound(err)
+}
+
+// ResolvePending marks a pending question confirmed or cancelled.
+func (s *Store) ResolvePending(ctx context.Context, id, status string) error {
+	return s.q.SetPendingStatus(ctx, db.SetPendingStatusParams{Status: status, ID: id})
+}
+
+// TTSCostPerChar is the observed average TTS cost per character for a model,
+// from ledger rows whose cost is known. ok is false when there is no history.
+func (s *Store) TTSCostPerChar(ctx context.Context, model string) (perChar float64, ok bool, err error) {
+	r, err := s.q.TTSCostTotals(ctx, model)
+	if err != nil {
+		return 0, false, err
+	}
+	if r.TotalChars == 0 || r.TotalUsd == 0 {
+		return 0, false, nil
+	}
+	return r.TotalUsd / float64(r.TotalChars), true, nil
+}

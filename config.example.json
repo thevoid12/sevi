@@ -21,13 +21,14 @@
       "provider": "openrouter",
       "model": "google/gemini-3.8-flash-tts",
       "voice": "Kore",
-      "chunk_chars": 3000
+      "chunk_chars": 3000,
+      "chars_per_minute": 950
     }
   },
 
   "cost": {
     "confirm_over_usd": 0.30,
-    "est_usd_per_1k_chars": 0.0,
+    "est_usd_per_1k_chars": 0.014,
     "show_in_reply": true
   },
 
