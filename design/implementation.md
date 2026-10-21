@@ -45,14 +45,16 @@ Model roles in config (all separately configurable):
 
 ## Phase 2: Store, blob, ledger, cache
 
-- [ ] `internal/store`: SQLite (pure-Go driver `modernc.org/sqlite` to avoid cgo), schema migrations in `sql/migrations/`, tables from design.md
-- [ ] sqlc: queries in `sql/queries/*.sql`, `sqlc.yaml`, generated Go code checked in under `internal/store/db`; no hand-written SQL in Go code
-- [ ] `internal/blob`: disk audio storage under a configured dir
-- [ ] Ledger write on every provider call (role, provider, model, units, cost, `unknown_cost` flag)
-- [ ] URL cache: cleaned text and audio keyed by URL hash; a re-shared URL costs nothing
-- [ ] Session CRUD and session cost sum
+- [x] `internal/store`: SQLite (`mattn/go-sqlite3` driver (cgo, needs gcc; first build is slow, later ones are cached)), schema migrations in `internal/store/sql/migrations/` (embedded, applied once each, tracked in `schema_migrations`), tables from design.md
+- [x] sqlc: queries in `internal/store/sql/queries/*.sql`, `sqlc.yaml` (dev tool: `go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest`, then `sqlc generate`), generated Go code checked in under `internal/store/db`; no hand-written SQL in Go code
+- [x] `internal/blob`: disk audio storage under a configured dir
+- [x] Ledger write on every provider call (role, provider, model, units, cost, `unknown_cost` flag)
+- [x] Caches: `page_cache` (cleaned text by URL hash) and `audio_cache` (by URL hash + tts model + voice); a re-shared URL costs nothing; `sevi tts -refresh <url>` bypasses both
+- [x] Ledger row is written as soon as a provider call succeeds; usage and cost are filled in after the provider's lookup, and stay NULL (unknown) if the lookup fails, for Phase 7 backfill
+- [x] Session CRUD and session cost sum
+- [x] Table conventions applied to every table: UUID v7 text `id` primary key (generated in Go), `created_on`/`created_by`/`updated_on`/`updated_by`, `updated_on` maintained by a trigger, `*_by` left NULL until accounts exist
 
-**Checkpoint 2:** run `sevi tts <url>` twice. First run writes ledger rows and a cache entry; second run is instant, zero new cost rows. `sqlite3 data/sevi.db` shows sessions and ledger as expected.
+**Checkpoint 2 (done, awaiting review):** run `sevi tts <url>` twice. First run writes ledger rows and a cache entry; second run is instant, zero new cost rows. `sqlite3 data/sevi.db` shows sessions and ledger as expected.
 
 ---
 
@@ -128,4 +130,5 @@ Model roles in config (all separately configurable):
 - Web UI over the Core API (sessions, audio players, cost views)
 - Discord adapter as the second adapter, to prove the pluggable contract
 - **Generic providers (direct keys, no OpenRouter).** Today the config shape (`providers` + model refs) already allows another OpenAI-compatible endpoint, but the code assumes OpenRouter specifics: the TTS call uses OpenRouter's `/audio/speech` Gemini route, cost comes from OpenRouter's usage/generation lookup, and audio input uses OpenRouter's request format. Making it generic means: a `type` per provider (`openrouter`, `openai`, `gemini`, ...) selecting the request/response adapter for TTS, audio input and cost extraction; a fallback cost source when a provider reports none; and no hard dependency on any one provider's key. Revisit once the OpenRouter path works end to end.
+- **Playback speed.** User-configurable audio speed (e.g. 1.25x, 1.5x). Applied after synthesis with ffmpeg's `atempo` filter (pitch preserved), so it costs no extra TTS and the cached original stays at normal speed. Config: a default under `models.tts` or a new `audio` group, plus a per-request override later (e.g. a Telegram command). Decide whether to cache sped-up variants or re-encode on delivery.
 - Deployment (Cloudflare or otherwise), multi-user BYOK, context summarization

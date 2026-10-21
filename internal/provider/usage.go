@@ -19,16 +19,21 @@ type Usage struct {
 }
 
 // OpenRouterUsage looks up a generation's usage and cost. OpenRouter's record
-// lags the request by a few seconds, so this polls until it appears.
+// lags the request by seconds to a minute or more, so this polls (3s, then
+// every 5s, about two minutes in all) until it appears. A 404 means "not yet".
 func OpenRouterUsage(ctx context.Context, baseURL, key, generationID string) (Usage, error) {
 	if generationID == "" {
 		return Usage{}, fmt.Errorf("no generation id returned by provider")
 	}
 	url := strings.TrimRight(baseURL, "/") + "/generation?id=" + generationID
 	var lastErr error
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 24; i++ {
+		wait := 5 * time.Second
+		if i == 0 {
+			wait = 3 * time.Second
+		}
 		select {
-		case <-time.After(3 * time.Second):
+		case <-time.After(wait):
 		case <-ctx.Done():
 			return Usage{}, ctx.Err()
 		}

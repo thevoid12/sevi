@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/logx"
 	"sevi/internal/reqid"
+	"sevi/internal/store"
 )
 
 func main() {
@@ -61,9 +64,27 @@ func main() {
 
 	if args := flag.Args(); len(args) > 0 {
 		switch {
-		case args[0] == "tts" && len(args) == 2:
-			if err := runTTS(ctx, rlog, cfg, args[1]); err != nil {
-				rlog.Errorw("tts failed", "url", args[1], "err", err)
+		case args[0] == "tts" && len(args) >= 2:
+			// sevi tts [-refresh] <url>
+			fs := flag.NewFlagSet("tts", flag.ExitOnError)
+			refresh := fs.Bool("refresh", false, "ignore cached text and audio and regenerate")
+			fs.Parse(args[1:])
+			if fs.NArg() != 1 {
+				fmt.Fprintln(os.Stderr, "usage: sevi tts [-refresh] <url>")
+				os.Exit(2)
+			}
+			url := fs.Arg(0)
+			st, err := store.Open(ctx, filepath.Join(cfg.App.DataDir, "sevi.db"), rlog)
+			if err != nil {
+				rlog.Errorw("open store failed", "err", err)
+				flush()
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			defer st.Close()
+			bl := blob.Disk{Root: filepath.Join(cfg.App.DataDir, "blobs")}
+			if err := runTTS(ctx, rlog, cfg, st, bl, url, *refresh); err != nil {
+				rlog.Errorw("tts failed", "url", url, "err", err)
 				flush()
 				fmt.Fprintln(os.Stderr, "error:", err)
 				os.Exit(1)

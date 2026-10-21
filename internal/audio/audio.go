@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -29,20 +31,29 @@ func Stitch(chunks [][]byte) []byte {
 	return out
 }
 
-// EncodeMP3 pipes PCM through ffmpeg into an MP3 file at out.
-func EncodeMP3(ctx context.Context, pcm []byte, out string) error {
+// EncodeMP3 pipes PCM through ffmpeg and returns the MP3 bytes. ffmpeg writes
+// to a temp file rather than stdout: a seekable output lets it write the
+// duration header players need for a correct seek bar.
+func EncodeMP3(ctx context.Context, pcm []byte) ([]byte, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return fmt.Errorf("ffmpeg not found in PATH (required for audio encoding): %w", err)
+		return nil, fmt.Errorf("ffmpeg not found in PATH (required for audio encoding): %w", err)
 	}
+	dir, err := os.MkdirTemp("", "sevi-audio-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	out := filepath.Join(dir, "out.mp3")
+
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-loglevel", "error",
 		"-f", "s16le", "-ar", fmt.Sprint(sampleRate), "-ac", fmt.Sprint(channels), "-i", "-", out)
 	cmd.Stdin = bytes.NewReader(pcm)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg encode to %s: %w: %s", out, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("ffmpeg encode: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return os.ReadFile(out)
 }
 
 // Duration in seconds of a PCM buffer.
