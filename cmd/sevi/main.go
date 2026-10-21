@@ -1,0 +1,71 @@
+// sevi: URL -> audio, voice Q&A. See design/design.md.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+
+	"sevi/internal/config"
+	"sevi/internal/logx"
+	"sevi/internal/reqid"
+)
+
+func main() {
+	cfgPath := flag.String("config", "config.json", "path to config.json")
+	logTest := flag.Bool("log-test", false, "emit one line per log level (including a forced error) and exit")
+	flag.Parse()
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config error:", err)
+		os.Exit(1)
+	}
+
+	log, flush, err := logx.New(cfg.Log)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "logger error:", err)
+		os.Exit(1)
+	}
+	defer flush()
+
+	ctx := reqid.With(context.Background(), reqid.New())
+	rlog := logx.With(ctx, log)
+
+	if *logTest {
+		rlog.Debugw("log test", "level", "debug")
+		rlog.Infow("log test", "level", "info")
+		rlog.Warnw("log test", "level", "warn")
+		rlog.Errorw("log test: forced error", "operation", "log-test", "err", fmt.Errorf("example failure"))
+		return
+	}
+
+	if _, err := cfg.ProviderKey(cfg.Models.TTS.Provider); err != nil {
+		rlog.Errorw("missing API key", "err", err)
+		flush()
+		os.Exit(1)
+	}
+	if cfg.Telegram.Enabled {
+		if _, err := config.RequireKey("telegram.bot_token_env", cfg.Telegram.BotTokenEnv); err != nil {
+			rlog.Errorw("missing Telegram token", "err", err)
+			flush()
+			os.Exit(1)
+		}
+	}
+	for field, ok := range cfg.KeyStatus() {
+		if !ok {
+			rlog.Warnw("API key not set", "field", field)
+		}
+	}
+
+	rlog.Infow("sevi started",
+		"config", *cfgPath,
+		"listen", cfg.App.Listen,
+		"tts_model", cfg.Models.TTS.Model,
+		"llm_model", cfg.Models.LLM.Model,
+		"stt_separate", cfg.Models.STT != nil,
+		"telegram", cfg.Telegram.Enabled,
+		"log_dir", cfg.Log.Dir,
+	)
+}
