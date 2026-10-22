@@ -115,8 +115,19 @@ text (the transcript for voice) and a `parent_id`: the message it was a reply to
     must not invent one; the system prompt also says to use only the material
     given and to say so when the answer is not in it.
 - Web: sessions are explicit (list, open, continue).
-- Long context: when a session outgrows the model window (1M tokens on the
-  chosen model, so far away), summarize older turns. Not needed for version 0.
+- **Long conversations are summarised.** When the messages not yet summarised add
+  up to more than `conversation.summarize_over_chars` (100,000 characters by
+  default, about 25,000 tokens; the blog's own text is not counted), the oldest
+  messages are folded, together with the earlier summary, into a new summary
+  stored on the session, until what is left in full is half that size (so the
+  next turn does not summarise again). Size is the only setting: there is no
+  message count, and the newest message is never folded. The model then sees: the
+  blog in full, the summary, the remaining messages in full, and the new one. The summary lists the user's questions in
+  order in their own words, then what was established and any stated preference
+  (voice or text). A reply to a message that has been folded in still shows that
+  message in the "replying to" note. A summary is one extra cheap model call
+  (about $0.0005), billed to the conversation; if it fails, the question is answered
+  with the full history. Setting `summarize_over_chars` to 0 turns it off.
 
 ## Reply format (voice or text)
 
@@ -188,6 +199,50 @@ by name and adds only a model ID. Config is grouped by concern (`app`,
 - BYOK: keys referenced by env var name in config, never stored in the file,
   never logged. Multi-user encrypted key storage is later.
 - Changing a model is a config edit.
+
+## Concurrency
+
+Every message starts its own job in its own goroutine, and the Telegram adapter
+handles each incoming update in its own goroutine, so several blogs or questions
+at once are all worked on side by side. Measured with a stand-in speech model:
+three blogs finished speaking after 0.62 s where one after another would take
+1.8 s. What is shared:
+
+- **The same blog twice:** one request speaks it; the other waits ("already being
+  made") and then reuses the audio at no cost. Keyed by link, speech model and
+  voice, so a different voice is a separate job.
+- **Provider limits:** parallel jobs share one OpenRouter account, so many at once
+  can hit the upstream rate limit; the retry waits (3, 6, 12, 24 s) absorb short
+  bursts. There is no cap on how many jobs run at once.
+- **Within one blog** the chunks are spoken one after another (to keep them in
+  order); across blogs they overlap.
+- **ffmpeg** encodes use CPU and overlap too; a long blog takes a few seconds.
+- **SQLite** uses one connection, so database calls queue briefly. They are
+  short next to the speech calls.
+
+## Securing the endpoints
+
+Nothing but the adapters we write may talk to the Core. Two separate doors:
+
+1. **Our adapters and web page to the Core API (built).** Every request must carry
+   a signed token: a JWT, HS256, valid for `api.token_ttl_seconds` (300, five
+   minutes). All adapters share one secret (`api.secret_env`, `SEVI_JWT_SECRET`,
+   made with `openssl rand -hex 32`) and are listed in `api.adapters`. Core checks,
+   before any handler runs: the signature, that the token has not expired, that it
+   names a listed adapter, and that the algorithm is HS256 (never `none`). A
+   refused caller is told only "Unauthorized"; the real reason goes to the log with
+   the caller's address. An adapter may only post messages and register threads
+   under its own name (403 otherwise). With one shared secret that last rule keeps
+   adapters from mixing up their threads; it is not a second lock, because anything
+   holding the secret could name any adapter. Core will not start with a missing or
+   short secret, and will not start listening on an address other machines can
+   reach unless `api.allow_remote_listen` is set. `sevi token <adapter>` prints a
+   token for trying the API with curl.
+2. **Telegram to a webhook (for the Cloudflare deployment).** Telegram cannot send
+   a JWT. It can send a secret string in a header (`X-Telegram-Bot-Api-Secret-Token`)
+   that we choose when registering the webhook. The endpoint rejects any request
+   without it, and the user-ID allowlist still applies after that. Today there is
+   no webhook: the bot polls Telegram, so nothing connects in from outside.
 
 ## Model call retries
 

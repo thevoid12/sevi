@@ -300,3 +300,9 @@ func (s *Store) LatestCostedCall(ctx context.Context, provider, model string) (L
 func (s *Store) SetMessageAudio(ctx context.Context, id, audioKey string) error {
 	return s.q.SetMessageAudio(ctx, db.SetMessageAudioParams{AudioKey: nullStr(audioKey), ID: id})
 }
+
+// SetSummary stores the rolling summary of a session and the id of the last
+// message it covers.
+func (s *Store) SetSummary(ctx context.Context, sessionID, summary, throughMessageID string) error {
+	return s.q.SetSessionSummary(ctx, db.SetSessionSummaryParams{Summary: nullStr(summary), SummaryThrough: nullStr(throughMessageID), ID: sessionID})
+}

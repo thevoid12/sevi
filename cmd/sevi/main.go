@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 
 	"sevi/internal/adapter/telegram"
 	"sevi/internal/api"
+	"sevi/internal/auth"
 	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/logx"
@@ -78,6 +80,11 @@ func run(cfgPath string, logTest bool, args []string) int {
 		}
 	}
 
+	// `sevi token <adapter>` prints a short-lived API token, for trying the API with curl.
+	if len(args) == 2 && args[0] == "token" {
+		return printToken(cfg, args[1])
+	}
+
 	st, err := store.Open(ctx, filepath.Join(cfg.App.DataDir, "sevi.db"), rlog)
 	if err != nil {
 		rlog.Errorw("open store failed", "err", err)
@@ -88,7 +95,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 
 	if len(args) > 0 {
 		if args[0] != "tts" || len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url>]  (no command: run the server)")
+			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter>]  (no command: run the server)")
 			return 2
 		}
 		if err := runTTS(ctx, log, cfg, st, bl, args[1]); err != nil {
@@ -104,6 +111,22 @@ func run(cfgPath string, logTest bool, args []string) int {
 // serve runs the HTTP API (and the Telegram adapter, if enabled) until
 // interrupted, then drains running jobs.
 func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgPath string, st *store.Store, bl blob.Store) int {
+	// Nobody but the configured adapters may call the API: no secrets, no start.
+	secret, err := cfg.APISecret()
+	if err != nil {
+		log.Errorw("the API secret is not set up", "err", err, "hint", "make one with: openssl rand -hex 32")
+		return 1
+	}
+	verifier, err := auth.NewVerifier(secret, cfg.API.Adapters)
+	if err != nil {
+		log.Errorw("API secrets are not usable", "err", err)
+		return 1
+	}
+	if !auth.IsLoopback(cfg.App.Listen) && !cfg.API.AllowRemoteListen {
+		log.Errorw("app.listen is reachable from other machines; refusing to start", "listen", cfg.App.Listen,
+			"hint", "use 127.0.0.1, or set api.allow_remote_listen if that is really intended")
+		return 1
+	}
 	c, err := newCore(cfg, st, bl, log)
 	if err != nil {
 		log.Errorw("could not start core", "err", err)
@@ -117,7 +140,7 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 		return 1
 	}
 	srv := &http.Server{
-		Handler:           api.New(c, st, bl, log).Handler(),
+		Handler:           api.New(c, st, bl, log, verifier).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Infow("sevi started",
@@ -140,6 +163,8 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 			Token:      token,
 			AllowedIDs: cfg.Telegram.AllowedUserIDs,
 			CoreURL:    coreURL(ln.Addr()),
+			Secret:     secret,
+			TokenTTL:   cfg.TokenTTL(),
 			ShowCost:   cfg.Cost.ShowInReply,
 		}, log)
 		tgDone = make(chan struct{})
@@ -176,4 +201,26 @@ func coreURL(addr net.Addr) string {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+// printToken mints a token for one adapter so the API can be tried with curl:
+//
+//	curl -H "Authorization: Bearer $(sevi token telegram)" localhost:8787/v1/...
+func printToken(cfg *config.Config, adapter string) int {
+	if !slices.Contains(cfg.API.Adapters, adapter) {
+		fmt.Fprintf(os.Stderr, "no adapter %q in api.adapters\n", adapter)
+		return 2
+	}
+	secret, err := cfg.APISecret()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	tok, err := auth.Mint(secret, adapter, cfg.TokenTTL())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	fmt.Println(tok)
+	return 0
 }

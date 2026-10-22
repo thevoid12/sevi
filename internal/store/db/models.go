@@ -92,13 +92,15 @@ type Pending struct {
 }
 
 type Session struct {
-	ID        string
-	Kind      string
-	Url       sql.NullString
-	CreatedOn int64
-	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
-	UpdatedBy sql.NullString
+	ID             string
+	Kind           string
+	Url            sql.NullString
+	CreatedOn      int64
+	CreatedBy      sql.NullString
+	UpdatedOn      sql.NullInt64
+	UpdatedBy      sql.NullString
+	Summary        sql.NullString
+	SummaryThrough sql.NullString
 }
 
 type ThreadMap struct {

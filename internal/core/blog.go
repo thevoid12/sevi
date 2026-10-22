@@ -26,6 +26,17 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	tts := c.Cfg.Models.TTS
 	hash := store.URLHash(pageURL)
 
+	// If the same blog is already being spoken, wait for it and reuse its audio
+	// instead of paying for it twice.
+	release, err := c.blogLocks.acquire(ctx, audioKeyFor(hash, tts.Model, tts.Voice), func() {
+		log.Infow("same blog is already being made, waiting for it", "url", pageURL)
+		j.progress("That one is already being made. Waiting for it…", 0, 0)
+	})
+	if err != nil {
+		return event.Wrap("I was stopped before finishing (the server is shutting down).", err)
+	}
+	defer release()
+
 	// A re-shared link with the same voice settings costs nothing.
 	if ca, err := c.Store.GetAudio(ctx, hash, tts.Model, tts.Voice); err == nil {
 		if _, err := c.Blob.Get(ctx, ca.AudioKey); err == nil {

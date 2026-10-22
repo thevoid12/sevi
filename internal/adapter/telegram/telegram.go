@@ -21,6 +21,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"sevi/internal/auth"
 	"sevi/internal/logx"
 	"sevi/internal/reqid"
 )
@@ -31,6 +32,8 @@ type Options struct {
 	Token       string
 	AllowedIDs  []int64
 	CoreURL     string // base URL of the Core API, e.g. http://127.0.0.1:8787
+	Secret      []byte // this adapter's API secret; every call to Core is signed with it
+	TokenTTL    time.Duration
 	ShowCost    bool   // append the cost to the blog audio caption
 	TelegramURL string // default https://api.telegram.org (override in tests)
 }
@@ -55,8 +58,16 @@ func New(o Options, log *zap.SugaredLogger) *Bot {
 	for _, id := range o.AllowedIDs {
 		allowed[id] = true
 	}
+	ttl := o.TokenTTL
+	if ttl == 0 {
+		ttl = 5 * time.Minute
+	}
+	secret := o.Secret
 	return &Bot{
-		api: &botAPI{base: o.TelegramURL, token: o.Token}, core: &seviClient{base: o.CoreURL},
+		api: &botAPI{base: o.TelegramURL, token: o.Token},
+		core: &seviClient{base: o.CoreURL, token: func() (string, error) {
+			return auth.Mint(secret, adapterName, ttl)
+		}},
 		allowed: allowed, showCost: o.ShowCost, log: log, pending: map[int64]string{},
 	}
 }

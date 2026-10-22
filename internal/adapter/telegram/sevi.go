@@ -19,6 +19,28 @@ import (
 // Its types mirror the API's JSON; it imports nothing from core or store.
 type seviClient struct {
 	base string // http://127.0.0.1:8787
+	// token returns a fresh signed token for each call; Core refuses a call without one.
+	token func() (string, error)
+}
+
+// request builds a request to Core carrying the adapter's token and request id.
+func (c *seviClient) request(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
+	req, err := http.NewRequest(method, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	tok, err := c.token()
+	if err != nil {
+		return nil, fmt.Errorf("sign request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	if id := reqid.From(ctx); id != "" {
+		req.Header.Set("X-Request-Id", id) // one id from the Telegram update through Core
+	}
+	return req, nil
 }
 
 type part struct {
@@ -78,7 +100,7 @@ func (c *seviClient) job(ctx context.Context, id string, after, waitSec int) (jo
 }
 
 func (c *seviClient) audio(ctx context.Context, messageID string) ([]byte, error) {
-	req, err := http.NewRequest("GET", c.base+"/v1/audio/"+messageID, nil)
+	req, err := c.request(ctx, "GET", "/v1/audio/"+messageID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -103,15 +125,9 @@ func (c *seviClient) registerThread(ctx context.Context, adapter, threadRef, mes
 }
 
 func (c *seviClient) do(ctx context.Context, method, path string, body []byte, out any) error {
-	req, err := http.NewRequest(method, c.base+path, bytes.NewReader(body))
+	req, err := c.request(ctx, method, path, body)
 	if err != nil {
 		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if id := reqid.From(ctx); id != "" {
-		req.Header.Set("X-Request-Id", id) // one id from the Telegram update through Core
 	}
 	raw, _, err := httpx.Do(ctx, req)
 	if err != nil {

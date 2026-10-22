@@ -9,14 +9,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"time"
 )
 
 type Config struct {
 	App       App                 `json:"app"`
 	Providers map[string]Provider `json:"providers"`
+	API       API                 `json:"api"`
 	Models    Models              `json:"models"`
 	Reply     Reply               `json:"reply"`
+	Chat      Conversation        `json:"conversation"`
 	Cost      Cost                `json:"cost"`
 	Telegram  Telegram            `json:"telegram"`
 	Log       Log                 `json:"log"`
@@ -27,6 +31,22 @@ type App struct {
 	DataDir   string `json:"data_dir"`
 	OutputDir string `json:"output_dir"`
 	Retries   int    `json:"retries"` // extra attempts for any failed provider call
+}
+
+// API controls who may call the Core API. Every request must carry a token
+// signed with the shared secret and naming one of the listed adapters; anything
+// else is refused.
+type API struct {
+	// SecretEnv names the env var holding the shared secret (32+ bytes; make one
+	// with `openssl rand -hex 32`). All adapters use the same one.
+	SecretEnv string `json:"secret_env"`
+	// Adapters lists the adapters allowed to call the API (telegram, web...).
+	Adapters []string `json:"adapters"`
+	// TokenTTLSeconds is how long a minted token is valid. 0 means 300 (5 minutes).
+	TokenTTLSeconds int `json:"token_ttl_seconds"`
+	// AllowRemoteListen permits app.listen to be an address other machines can
+	// reach. Off by default: Core refuses to start on one.
+	AllowRemoteListen bool `json:"allow_remote_listen"`
 }
 
 // Provider is one API endpoint and the env var holding its key. Models refer
@@ -71,6 +91,16 @@ type Reply struct {
 	// Voice is the default: true answers with a voice note, false with text.
 	// A user can ask for the other format in a message, for that turn only.
 	Voice bool `json:"voice"`
+}
+
+// Conversation controls how a long conversation is kept short enough to send
+// to the model on every turn.
+type Conversation struct {
+	// SummarizeOverChars: when the messages not yet summarised add up to more
+	// than this many characters, the oldest are folded into a summary until what
+	// is left is half this size. 0 turns summarising off. About 4 characters make
+	// a token, so 100000 is roughly 25,000 tokens. The blog's own text is not counted.
+	SummarizeOverChars int `json:"summarize_over_chars"`
 }
 
 type Cost struct {
@@ -149,6 +179,21 @@ func (c *Config) validate() error {
 	need("models.tts.voice", c.Models.TTS.Voice)
 	if c.Models.TTS.ChunkChars <= 0 {
 		errs = append(errs, errors.New("models.tts.chunk_chars must be > 0"))
+	}
+	need("api.secret_env", c.API.SecretEnv)
+	if len(c.API.Adapters) == 0 {
+		errs = append(errs, errors.New("api.adapters must list at least one adapter, or nothing could call the API"))
+	}
+	if c.API.TokenTTLSeconds < 0 {
+		errs = append(errs, errors.New("api.token_ttl_seconds must be >= 0"))
+	}
+	if c.Telegram.Enabled {
+		if !slices.Contains(c.API.Adapters, "telegram") {
+			errs = append(errs, errors.New(`api.adapters needs "telegram" in it when telegram is enabled`))
+		}
+	}
+	if c.Chat.SummarizeOverChars < 0 {
+		errs = append(errs, errors.New("conversation.summarize_over_chars must be >= 0"))
 	}
 	if c.Cost.PriceTTLDays < 0 || c.Models.TTS.AudioTokensPerSec < 0 {
 		errs = append(errs, errors.New("cost.price_ttl_days and models.tts.audio_tokens_per_sec must be >= 0"))
@@ -231,4 +276,22 @@ func loadDotEnv(path string) {
 			os.Setenv(strings.TrimSpace(k), strings.Trim(strings.TrimSpace(v), `"'`))
 		}
 	}
+}
+
+// APISecret reads the shared API secret from the environment. The error names
+// the env var that is missing, never a value.
+func (c *Config) APISecret() ([]byte, error) {
+	v, err := RequireKey("api.secret_env", c.API.SecretEnv)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(v), nil
+}
+
+// TokenTTL is how long a minted API token lives.
+func (c *Config) TokenTTL() time.Duration {
+	if c.API.TokenTTLSeconds == 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.API.TokenTTLSeconds) * time.Second
 }

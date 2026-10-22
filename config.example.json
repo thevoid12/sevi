@@ -5,6 +5,14 @@
     "output_dir": "output",
     "retries": 4
   },
+  "api": {
+    "secret_env": "SEVI_JWT_SECRET",
+    "adapters": [
+      "telegram"
+    ],
+    "token_ttl_seconds": 300,
+    "allow_remote_listen": false
+  },
   "providers": {
     "openrouter": {
       "base_url": "https://openrouter.ai/api/v1",
@@ -32,6 +40,9 @@
   },
   "reply": {
     "voice": true
+  },
+  "conversation": {
+    "summarize_over_chars": 100000
   },
   "cost": {
     "confirm_over_usd": 0.2,

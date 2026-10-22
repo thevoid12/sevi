@@ -169,6 +169,8 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 		transcript, audioMP3 = strings.TrimSpace(res.Text), nil
 	}
 
+	turnCost += c.maybeSummarize(ctx, j, sessionID, userMsg.ID)
+
 	convo, err := c.buildContext(ctx, sessionID, userMsg, transcript, audioMP3 != nil)
 	if err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
@@ -343,39 +345,47 @@ func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg store
 		b.WriteString("\n")
 	}
 
-	line := func(m store.Message) string {
-		who, what := "User", strings.TrimSpace(m.Text.String)
-		if m.Role == "assistant" {
-			who = "Assistant"
-			if what == "" {
-				what = "(read the blog aloud as audio)"
+	// Messages up to summary_through are covered by the summary and left out of the
+	// timeline; the replied-to message is still looked up in the full list.
+	start := 0
+	if sess.Summary.Valid && sess.SummaryThrough.Valid {
+		for i := range msgs {
+			if msgs[i].ID == sess.SummaryThrough.String {
+				start = i + 1
+				break
 			}
 		}
-		if what == "" {
-			what = "(audio, not transcribed)"
-		}
-		return fmt.Sprintf("[%s] %s: %s", stamp(m.CreatedOn), who, what)
+		fmt.Fprintf(&b, "Summary of the earlier conversation (everything up to %s):\n%s\n\n", stamp(msgs[max(start-1, 0)].CreatedOn), sess.Summary.String)
 	}
 
 	var parent *store.Message
-	b.WriteString("Conversation so far, oldest first:\n")
-	n := 0
 	for i := range msgs {
-		m := msgs[i]
-		if m.ID == userMsg.ID {
-			continue
-		}
-		n++
-		b.WriteString(line(m) + "\n")
-		if userMsg.ParentID.Valid && m.ID == userMsg.ParentID.String {
+		if userMsg.ParentID.Valid && msgs[i].ID == userMsg.ParentID.String {
 			parent = &msgs[i]
 		}
 	}
+	if start > 0 {
+		b.WriteString("Recent messages, oldest first (older ones are in the summary above):\n")
+	} else {
+		b.WriteString("Conversation so far, oldest first:\n")
+	}
+	n := 0
+	for i := start; i < len(msgs); i++ {
+		if msgs[i].ID == userMsg.ID {
+			continue
+		}
+		n++
+		b.WriteString(renderMessage(msgs[i]) + "\n")
+	}
 	if n == 0 {
-		b.WriteString("(nothing yet)\n")
+		if start > 0 {
+			b.WriteString("(none since the summary)\n")
+		} else {
+			b.WriteString("(nothing yet)\n")
+		}
 	}
 	if parent != nil {
-		b.WriteString("\nThe user is replying to this earlier message:\n" + line(*parent) + "\n")
+		b.WriteString("\nThe user is replying to this earlier message:\n" + renderMessage(*parent) + "\n")
 	}
 	fmt.Fprintf(&b, "\nNew message, sent at %s:\n", stamp(userMsg.CreatedOn))
 	switch {
@@ -385,6 +395,21 @@ func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg store
 		b.WriteString(transcript + "\n")
 	}
 	return b.String(), nil
+}
+
+// renderMessage is one line of the timeline: "[time] Who: what was said".
+func renderMessage(m store.Message) string {
+	who, what := "User", strings.TrimSpace(m.Text.String)
+	if m.Role == "assistant" {
+		who = "Assistant"
+		if what == "" {
+			what = "(read the blog aloud as audio)"
+		}
+	}
+	if what == "" {
+		what = "(audio, not transcribed)"
+	}
+	return fmt.Sprintf("[%s] %s: %s", stamp(m.CreatedOn), who, what)
 }
 
 func stamp(unix int64) string { return time.Unix(unix, 0).UTC().Format("2006-01-02 15:04 UTC") }

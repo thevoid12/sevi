@@ -29,10 +29,12 @@ import (
 type fakeTTS struct {
 	calls  atomic.Int32
 	failAt int32 // 1-based call number that fails, 0 = never
+	delay  time.Duration
 }
 
 func (f *fakeTTS) Synth(_ context.Context, _ string) (provider.Speech, error) {
 	n := f.calls.Add(1)
+	time.Sleep(f.delay)
 	if f.failAt != 0 && n == f.failAt {
 		return provider.Speech{}, &httpx.StatusError{Host: "tts.example", Code: 500, Status: "500", Body: "SECRET-PROVIDER-DETAIL"}
 	}
@@ -47,12 +49,22 @@ type fakeLLM struct {
 	err     error
 	usage   provider.ChatUsage
 	rateLim int // the first N calls fail with a 429
+	// hook, if set, may answer a request itself (return its text and true).
+	hook func(req provider.ChatRequest) (string, error, bool)
 }
 
 func (f *fakeLLM) Chat(_ context.Context, req provider.ChatRequest) (provider.ChatResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reqs = append(f.reqs, req)
+	if f.hook != nil {
+		if txt, err, ok := f.hook(req); ok {
+			if err != nil {
+				return provider.ChatResult{}, err
+			}
+			return provider.ChatResult{Text: txt, GenerationID: fmt.Sprintf("llm-gen-%d", len(f.reqs)), Usage: f.usage}, nil
+		}
+	}
 	if len(f.reqs) <= f.rateLim {
 		return provider.ChatResult{}, &httpx.StatusError{Host: "openrouter.ai", Code: 429, Status: "429", Body: "temporarily rate-limited upstream"}
 	}

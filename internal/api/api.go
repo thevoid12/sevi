@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"sevi/internal/auth"
 	"sevi/internal/blob"
 	"sevi/internal/core"
 	"sevi/internal/event"
@@ -22,17 +24,19 @@ import (
 )
 
 type API struct {
-	core  *core.Core
-	store *store.Store
-	blob  blob.Store
-	log   *zap.SugaredLogger
+	core     *core.Core
+	store    *store.Store
+	blob     blob.Store
+	log      *zap.SugaredLogger
+	verifier *auth.Verifier
 }
 
-func New(c *core.Core, st *store.Store, bl blob.Store, log *zap.SugaredLogger) *API {
-	return &API{core: c, store: st, blob: bl, log: log}
+func New(c *core.Core, st *store.Store, bl blob.Store, log *zap.SugaredLogger, v *auth.Verifier) *API {
+	return &API{core: c, store: st, blob: bl, log: log, verifier: v}
 }
 
-// Handler returns the routes wrapped in request-id and access-log middleware.
+// Handler returns the routes wrapped in request-id, access-log and authentication
+// middleware: every route needs a valid adapter token.
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/messages", a.postMessage)
@@ -41,7 +45,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions/{id}/cost", a.getSessionCost)
 	mux.HandleFunc("POST /v1/threads", a.postThread)
 	mux.HandleFunc("GET /v1/audio/{message_id}", a.getAudio)
-	return a.middleware(mux)
+	return a.middleware(a.authenticate(mux))
 }
 
 // maxMessageBytes bounds a request body: voice notes travel inside it as base64.
@@ -58,6 +62,14 @@ func (a *API) postMessage(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessageBytes))
 	if err := dec.Decode(&m); err != nil {
 		a.fail(w, r, http.StatusBadRequest, event.Wrap("The request body is not valid JSON.", err))
+		return
+	}
+	// An adapter may only speak as itself, or its messages could be filed under
+	// another adapter's threads.
+	if caller := adapterFrom(r.Context()); m.Adapter == "" {
+		m.Adapter = caller
+	} else if m.Adapter != caller {
+		a.fail(w, r, http.StatusForbidden, event.Wrap("An adapter may only send messages as itself.", fmt.Errorf("token for %q sent a message as %q", caller, m.Adapter)))
 		return
 	}
 	job, err := a.core.Handle(r.Context(), m)
@@ -247,6 +259,10 @@ func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&t); err != nil || t.Adapter == "" || t.ThreadRef == "" || t.MessageID == "" {
 		a.fail(w, r, http.StatusBadRequest, event.Wrap("adapter, thread_ref and message_id are required.", err))
+		return
+	}
+	if caller := adapterFrom(r.Context()); t.Adapter != caller {
+		a.fail(w, r, http.StatusForbidden, event.Wrap("An adapter may only register its own threads.", fmt.Errorf("token for %q registered a thread as %q", caller, t.Adapter)))
 		return
 	}
 	if _, err := a.store.GetMessage(r.Context(), t.MessageID); err != nil {

@@ -162,13 +162,13 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
         <li>Voice note or text answer, chosen per message</li>
         <li>Costs computed from tokens and a stored price, checked weekly against the provider</li>
         <li>Retries with a visible "busy, trying again" message</li>
+        <li>Every API call needs a signed token from a known adapter; long conversations are summarised</li>
       </ul>
     </div>
     <div class="gaps">
       <h3>Not built yet</h3>
       <ul>
         <li>Documents and other attachments (version 1; Telegram ignores them silently for now)</li>
-        <li>Any login on the API, which only listens on localhost</li>
         <li>A fallback model, a web page, a Discord adapter</li>
         <li>Jobs that survive a restart (today they live in memory)</li>
         <li>A readme and a log review (version 1)</li>
@@ -232,7 +232,7 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
       <text class="t" x="452" y="210">POST /v1/threads</text>
       <text class="t" x="452" y="232">GET  /v1/sessions/{id}</text>
       <text class="s" x="452" y="268">request id on every call</text>
-      <text class="s" x="452" y="284">no login (localhost only)</text>
+      <text class="s" x="452" y="284">signed token on every call</text>
       <path class="arr" d="M590 195 H630"/>
 
       <rect class="box core" x="630" y="70" width="190" height="330" rx="6"/>
@@ -470,7 +470,7 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
       <h3>Whole session in context, no branches</h3>
       <p class="why">A question asked from an old message still sees everything said since. The model can say "as I explained earlier" truthfully.</p>
       <p class="cost">Every turn re-sends the blog and the whole history. Providers cache the repeated prefix (billed at a tenth), and the Gemini lite window is about 1M tokens, but a very long conversation grows without limit.</p>
-      <p class="ask">When a session gets long, do you want older turns summarised, or a "start fresh on this blog" command?</p>
+      <p class="ask">Older turns are folded into a summary once a conversation passes about 25,000 tokens (100,000 characters). Is that the right size, and should the summary be something you can read?</p>
     </div>
     <div class="card">
       <h3>A reply to an unknown message is refused</h3>
@@ -779,7 +779,7 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
         <rect class="chip-work" x="900" y="258" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="279" text-anchor="middle">REWORK</text>
       </g>
       <g>
-        <rect class="box" x="20" y="304" width="350" height="44" rx="5"/><text class="t" x="32" y="331">API on localhost, no login</text>
+        <rect class="box" x="20" y="304" width="350" height="44" rx="5"/><text class="t" x="32" y="331">API on localhost, signed token per call</text>
         <rect class="box" x="400" y="304" width="480" height="44" rx="5"/><text class="t" x="412" y="331">Public URL: verify Telegram's secret, keep your ID list.</text>
         <rect class="chip-work" x="900" y="310" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="331" text-anchor="middle">REWORK</text>
       </g>
@@ -833,10 +833,10 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
       <p class="ask">Is losing an in-flight 3-minute job on restart acceptable, or must jobs be resumable?</p>
     </div>
     <div class="card">
-      <h3>2. No login on the API</h3>
-      <p class="why">It listens on localhost; the allowlist guards Telegram.</p>
-      <p class="cost">Anyone on the machine can use your API key through it. Not acceptable once it is reachable from outside.</p>
-      <p class="ask">What should authenticate a web page or Discord adapter later?</p>
+      <h3>2. Adapters prove themselves with a signed token</h3>
+      <p class="why">Adapters share one secret and mint a five-minute JWT per call. Anything else gets a plain 401; Core will not start without secrets or on an address other machines can reach.</p>
+      <p class="cost">A browser cannot hold a secret, so a web page needs a login step that issues tokens. On Cloudflare the Telegram webhook needs a second check: Telegram's secret header.</p>
+      <p class="ask">When the web page exists, what should it log in with?</p>
     </div>
     <div class="card">
       <h3>3. OpenRouter is assumed everywhere</h3>

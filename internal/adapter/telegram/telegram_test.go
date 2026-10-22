@@ -14,11 +14,15 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"sevi/internal/auth"
 )
 
 const token = "123:SECRET-TOKEN"
 
 var voiceBytes = []byte("fake-ogg-voice-note")
+
+var apiSecret = []byte(strings.Repeat("s", 40))
 
 // fakeTelegram serves the Bot API methods the adapter uses and records calls.
 type fakeTelegram struct {
@@ -104,6 +108,7 @@ type fakeCore struct {
 	mu           sync.Mutex
 	messages     []map[string]any // bodies POSTed to /v1/messages
 	threads      []map[string]string
+	unsigned     int // calls that arrived without a valid adapter token
 }
 
 func newFakeCore(result string, confirmFirst bool) *fakeCore {
@@ -150,7 +155,22 @@ func newFakeCore(result string, confirmFirst bool) *fakeCore {
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
-	f.srv = httptest.NewServer(mux)
+	v, err := auth.NewVerifier(apiSecret, []string{"telegram"})
+	if err != nil {
+		panic(err)
+	}
+	// Like the real Core: nothing is served without a valid token.
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := r.Header.Get("Authorization")
+		if adapter, err := v.Verify(strings.TrimPrefix(h, "Bearer ")); err != nil || adapter != "telegram" {
+			f.mu.Lock()
+			f.unsigned++
+			f.mu.Unlock()
+			http.Error(w, `{"error":{"message":"Unauthorized"}}`, http.StatusUnauthorized)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	return f
 }
 
@@ -177,11 +197,21 @@ func (f *fakeCore) hasThread(ref, messageID string) bool {
 
 func runBot(t *testing.T, tg *fakeTelegram, core *fakeCore) {
 	t.Helper()
-	bot := New(Options{Token: token, AllowedIDs: []int64{42}, CoreURL: core.srv.URL, ShowCost: true, TelegramURL: tg.srv.URL}, zap.NewNop().Sugar())
+	bot := New(Options{Token: token, AllowedIDs: []int64{42}, CoreURL: core.srv.URL, Secret: apiSecret, ShowCost: true, TelegramURL: tg.srv.URL}, zap.NewNop().Sugar())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { bot.Run(ctx); close(done) }()
-	t.Cleanup(func() { cancel(); <-done; tg.srv.Close(); core.srv.Close() })
+	t.Cleanup(func() {
+		cancel()
+		<-done
+		tg.srv.Close()
+		core.srv.Close()
+		core.mu.Lock()
+		defer core.mu.Unlock()
+		if core.unsigned != 0 {
+			t.Errorf("%d call(s) to Core carried no valid adapter token", core.unsigned)
+		}
+	})
 }
 
 func eventually(t *testing.T, what string, cond func() bool) {
@@ -365,3 +395,15 @@ func TestFirstURLAndCaption(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestACoreThatDoesNotKnowTheAdaptersSecretRefusesItsCalls(t *testing.T) {
+	core := newFakeCore("blog", false)
+	defer core.srv.Close()
+	c := &seviClient{base: core.srv.URL, token: func() (string, error) {
+		return auth.Mint([]byte(strings.Repeat("z", 40)), "telegram", time.Minute) // a different secret
+	}}
+	_, err := c.send(context.Background(), outgoing{Parts: []part{{Type: "text", Text: "hi"}}})
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("a call signed with the wrong secret must be refused, got %v", err)
+	}
+}

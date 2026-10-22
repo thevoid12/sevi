@@ -11,7 +11,7 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (id, kind, url) VALUES (?, ?, ?) RETURNING id, kind, url, created_on, created_by, updated_on, updated_by
+INSERT INTO sessions (id, kind, url) VALUES (?, ?, ?) RETURNING id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through
 `
 
 type CreateSessionParams struct {
@@ -31,12 +31,14 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.Summary,
+		&i.SummaryThrough,
 	)
 	return i, err
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, kind, url, created_on, created_by, updated_on, updated_by FROM sessions WHERE id = ?
+SELECT id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -50,6 +52,23 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.CreatedBy,
 		&i.UpdatedOn,
 		&i.UpdatedBy,
+		&i.Summary,
+		&i.SummaryThrough,
 	)
 	return i, err
+}
+
+const setSessionSummary = `-- name: SetSessionSummary :exec
+UPDATE sessions SET summary = ?, summary_through = ? WHERE id = ?
+`
+
+type SetSessionSummaryParams struct {
+	Summary        sql.NullString
+	SummaryThrough sql.NullString
+	ID             string
+}
+
+func (q *Queries) SetSessionSummary(ctx context.Context, arg SetSessionSummaryParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionSummary, arg.Summary, arg.SummaryThrough, arg.ID)
+	return err
 }

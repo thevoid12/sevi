@@ -146,7 +146,10 @@ API and Telegram adapter:
 
 Problems found while reviewing the design end to end. Each is added here with a checkbox when it is agreed, fixed one at a time, and tested.
 
-- [ ] _The list comes from the review; nothing is planned until it is written down here._
+- [x] The same blog requested twice at once is spoken once: the second request waits ("already being made"), then reuses the audio at $0.00. (Found while checking parallelism; it was being spoken and billed twice.) Different blogs still run side by side.
+- [x] Long conversations are summarised (`conversation.summarize_over_chars` = 100,000 characters, about 25,000 tokens, only setting: size; the oldest messages are folded until half that remains in full, the newest is never folded): older messages are folded into a stored rolling summary; the blog is never summarised; a reply to a folded message still shows it; a failed summary never fails the question. Tested with the real model: the first version blurred the user's first question, so the prompt now keeps every question in order in the user's words, and the same test answers correctly.
+- [x] API authentication: every request needs a signed token (JWT, HS256, 5 minutes) naming a listed adapter, signed with one shared secret (`SEVI_JWT_SECRET`); an adapter can only act as itself (bookkeeping, since the secret is shared); Core refuses to start without secrets or on a non-local address; `sevi token <adapter>` for curl. Tested against: no token, garbage, `alg: none`, wrong secret, another adapter's secret, expired, no expiry, tampered.
+- [ ] _More items are added here as the review produces them._
 
 **Checkpoint 6:** every item above is ticked, the test suite passes, and a real session in Telegram (link, voice question, text question, reply to an old message) behaves as designed.
 
@@ -158,7 +161,8 @@ Planned after Phase 6. The first decision is where the Core runs: keep the Go co
 
 - [ ] Decide where the Core runs
 - [ ] Storage: database, audio files, jobs
-- [ ] Telegram: webhook instead of long polling, with the secret-token check
+- [ ] Telegram: webhook instead of long polling. Telegram can send a secret in a header (`X-Telegram-Bot-Api-Secret-Token`, set when the webhook is registered); the endpoint rejects any request without it, then still applies the user-ID allowlist
+- [x] API authentication between our own pieces (done in Phase 6; see above). On Cloudflare the secrets move to Wrangler secrets
 - [ ] Config and secrets, logs
 - [ ] Deploy and test the same Telegram checks as Phase 6
 
@@ -184,12 +188,18 @@ Planned after Phase 6. The first decision is where the Core runs: keep the Go co
 **Checkpoint:** a day of real use. Review `logs/error.log` and the ledger for surprises; fix what shows up.
 
 ### Other version 1 items
+- **Gemini speech settings** beyond the voice name, to be reviewed: a separate voice for answers, a speaking-style instruction, anything else you want to tune. (Today only `models.tts.voice` exists.)
 - Web UI over the Core API (sessions, audio players, cost views)
 - Discord adapter as the second adapter, to prove the pluggable contract
 - **Generic providers (direct keys, no OpenRouter).** Today the config shape (`providers` + model refs) already allows another OpenAI-compatible endpoint, but the code assumes OpenRouter specifics: the TTS call uses OpenRouter's `/audio/speech` Gemini route, cost comes from OpenRouter's usage/generation lookup, and audio input uses OpenRouter's request format. Making it generic means: a `type` per provider (`openrouter`, `openai`, `gemini`, ...) selecting the request/response adapter for TTS, audio input and cost extraction; a fallback cost source when a provider reports none; and no hard dependency on any one provider's key. Revisit once the OpenRouter path works end to end.
 - **Playback speed.** User-configurable audio speed (e.g. 1.25x, 1.5x). Applied after synthesis with ffmpeg's `atempo` filter (pitch preserved), so it costs no extra TTS and the cached original stays at normal speed. Config: a default under `models.tts` or a new `audio` group, plus a per-request override later (e.g. a Telegram command). Decide whether to cache sped-up variants or re-encode on delivery.
-- Multi-user BYOK, context summarization
+- Multi-user BYOK
 - Optional LLM-written blog description for the audio caption (off by default)
 - Optional fallback model for when the main one stays rate-limited upstream
 - Jobs that survive a restart (today they live in memory)
-- API authentication, needed once anything outside the machine can reach it
+
+---
+
+## Version 2 (later, not started)
+
+- **Other speech providers (ElevenLabs first).** Version 0 is built for Gemini speech models and swapping between those is already a config change. A different vendor needs its own adapter: its endpoint and voice names, the audio format and sample rate it returns, and how it bills (per character or per second, not Gemini's 25 tokens per second). Prices, the cost check and the estimate each need the same per-provider treatment.

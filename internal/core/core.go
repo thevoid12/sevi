@@ -48,11 +48,17 @@ type Core struct {
 
 	mu   sync.Mutex
 	jobs map[string]*Job
+
+	// blogLocks makes the same blog (link + speech model + voice) be spoken once
+	// at a time: a second request for it waits, then finds the audio ready.
+	blogLocks keyedLock
+	// sessionLocks keeps two questions in one conversation from summarising it at once.
+	sessionLocks keyedLock
 }
 
 func New(d Deps) *Core {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Core{Deps: d, ctx: ctx, cancel: cancel, jobs: map[string]*Job{}}
+	return &Core{Deps: d, ctx: ctx, cancel: cancel, jobs: map[string]*Job{}, blogLocks: keyedLock{held: map[string]chan struct{}{}}, sessionLocks: keyedLock{held: map[string]chan struct{}{}}}
 }
 
 // Close cancels running jobs and waits briefly for them to stop.
@@ -214,4 +220,40 @@ type pendingConfirm struct {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// keyedLock is a mutex per key that gives up when the context ends.
+type keyedLock struct {
+	mu   sync.Mutex
+	held map[string]chan struct{} // closed when the holder releases
+}
+
+// acquire waits for the key to be free and takes it. onWait, if set, is called
+// once, only when the key was already held. The returned func releases it.
+func (k *keyedLock) acquire(ctx context.Context, key string, onWait func()) (release func(), err error) {
+	for {
+		k.mu.Lock()
+		busy, taken := k.held[key]
+		if !taken {
+			done := make(chan struct{})
+			k.held[key] = done
+			k.mu.Unlock()
+			return func() {
+				k.mu.Lock()
+				delete(k.held, key)
+				k.mu.Unlock()
+				close(done)
+			}, nil
+		}
+		k.mu.Unlock()
+		if onWait != nil {
+			onWait()
+			onWait = nil
+		}
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
