@@ -1,6 +1,6 @@
 # Use Cases / Problem Statement
 
-## Current state (prototype v0)
+## Where we started (the CLI prototype)
 
 `go run . <url>` fetches the article through Jina Reader, cleans it to speakable
 text, chunks it, synthesizes each chunk with Gemini TTS via OpenRouter, and
@@ -24,7 +24,7 @@ repeat until the concept is clear.
   bot, or anything else).
 - **Flow:**
   1. Share link in the chat surface.
-  2. System fetches the blog and converts it to an audio recording (v0 pipeline).
+  2. System fetches the blog and converts it to an audio recording (the prototype's pipeline).
   3. Audio is delivered back. Either posted in the same Discord/Telegram
      channel (cheap, no extra infra), or tracked on a website that stores the
      request and the audio response.
@@ -54,7 +54,7 @@ repeat until the concept is clear.
   is easy: type or send a voice note, get a reply. Unclear how threads map onto
   it. Possibly two front ends (Telegram and web) over the same core. To be
   decided in the design.
-- **Gap in v0:** CLI only, one-shot, no chat input, no delivery, no follow-up
+- **Gap in the prototype:** CLI only, one-shot, no chat input, no delivery, no follow-up
   questions, no history or thread state, no voice input, no LLM answer step.
 
 ### UC-2: General voice LLM chat (same idea, no blog)
@@ -69,11 +69,12 @@ repeat until the concept is clear.
 - **Relation to UC-1:** the same engine. UC-1's thread Q&A is a chat whose
   context is a blog; UC-2 is a chat with no blog or with attached files as
   context.
-- **Gap in v0:** no chat, no speech-to-text, no LLM, no attachments.
+- **Gap in the prototype:** no chat, no speech-to-text, no LLM, no attachments.
+- **Status:** voice and text chat is built (version 0). File attachments are version 1.
 
 ## Constraints
 
-- Needs to be usable today for real testing, so v1 must be small.
+- Needs to be usable today for real testing, so the first version must be small.
 - Delivery surface is swappable (adapter layer).
 - Everything user-facing is audio; text is a fallback, not the primary medium.
 

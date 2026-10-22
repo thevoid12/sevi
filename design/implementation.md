@@ -1,4 +1,4 @@
-# sevi implementation plan (v1)
+# sevi implementation plan
 
 Companion to [design.md](design.md). Each phase ends in a **checkpoint**: a
 concrete thing you can run and check before the next phase starts. Boxes are
@@ -15,6 +15,14 @@ Model roles in config (all separately configurable):
 - `llm`: chat, and audio/file input when `models.stt` is omitted.
 - `stt`: optional; present means transcribe first, then call the LLM with text.
 
+
+## Versions
+
+- **Version 0 (built, being finished):** Phases 0 to 5, then the fixes from the design review (Phase 6), then deployment on Cloudflare (Phase 7).
+- **Version 1 (later):** attachments, hardening, a readme, and the larger items listed under "Version 1" at the end of this file.
+
+Naming: "the prototype" is the original single-file CLI. "Version 0" is the working app.
+
 ---
 
 ## Phase 0: Project skeleton
@@ -30,7 +38,7 @@ Model roles in config (all separately configurable):
 
 ---
 
-## Phase 1: Refactor v0 into packages
+## Phase 1: Refactor the prototype into packages
 
 - [x] `internal/fetch`: Jina fetch, `toSpeakable`, `detectScript`, `chunk` moved out of `main.go`, unchanged behavior
 - [x] `internal/audio`: PCM to MP3 via ffmpeg, plus stitching of chunk audio into one file
@@ -109,7 +117,7 @@ Core:
 - [x] Config `reply.voice` (default true) sets the default format; `text` skips TTS entirely (no TTS cost)
 - [x] `format = voice`: answer is TTS'd and returned as an audio part; `format = text`: returned as a text part
 - [x] Ledger rows for llm, stt, tts per turn with cost computed from tokens x the stored price; the turn's cost is returned on the answer part
-- [ ] Optional blog description (deferred; not built in Phase 5): when enabled in config, one cheap LLM call writes a one-or-two-line summary of the blog for the audio caption (off by default)
+- [ ] Optional blog description (moved to version 1): when enabled in config, one cheap LLM call writes a one-or-two-line summary of the blog for the audio caption (off by default)
 
 API and Telegram adapter:
 - [x] `POST /v1/threads` takes `message_id` instead of `session_id`
@@ -134,34 +142,54 @@ API and Telegram adapter:
 
 ---
 
-## Phase 6: Free chat and attachments (UC-2)
+## Phase 6: Version 0 fixes (from the design review)
 
-- [x] A voice or text message that is not a reply starts a free chat session (built in Phase 5)
-- [ ] Any attached file is passed through to the LLM as session context; provider errors reported plainly
-- [x] Same audio-in, audio-out loop as Phase 5 (built in Phase 5)
-- [ ] File names and sizes logged, contents never logged
+Problems found while reviewing the design end to end. Each is added here with a checkbox when it is agreed, fixed one at a time, and tested.
 
-**Checkpoint 6:** send a voice note with a PDF or image attached to the bot with no prior session, get a spoken answer, then continue the conversation by replying.
+- [ ] _The list comes from the review; nothing is planned until it is written down here._
+
+**Checkpoint 6:** every item above is ticked, the test suite passes, and a real session in Telegram (link, voice question, text question, reply to an old message) behaves as designed.
 
 ---
 
-## Phase 7: Hardening
+## Phase 7: Version 0 deployment (Cloudflare)
 
-- [ ] Retries and clear user-facing error text for each failure class (fetch blocked, key out of credit, rate limit, ffmpeg missing)
+Planned after Phase 6. The first decision is where the Core runs: keep the Go code in a container (it needs ffmpeg), or rewrite it in TypeScript for Workers. The design page lists nine local assumptions and what each becomes on Cloudflare (see `sevi-design-map.html`, section Deployment). Details are written here once that decision is made.
+
+- [ ] Decide where the Core runs
+- [ ] Storage: database, audio files, jobs
+- [ ] Telegram: webhook instead of long polling, with the secret-token check
+- [ ] Config and secrets, logs
+- [ ] Deploy and test the same Telegram checks as Phase 6
+
+---
+
+## Version 1 (later, not started)
+
+### Attachments (was Phase 6)
+- [x] A voice or text message that is not a reply starts a free chat session (done in version 0)
+- [ ] Any attached file is passed through to the LLM as session context; provider errors reported plainly
+- [ ] Telegram: accept documents and images (today they are ignored with no reply); say plainly what is not supported
+- [ ] File names and sizes logged, contents never logged
+
+**Checkpoint:** send a voice note with a PDF or image attached to the bot with no prior session, get a spoken answer, then continue the conversation by replying.
+
+### Hardening (was Phase 7)
+- [ ] Clear user-facing error text for each failure class (fetch blocked, key out of credit, ffmpeg missing); rate limits are already handled
 - [ ] Graceful shutdown; in-flight jobs finish or are marked failed
 - [ ] Cost backfill for ledger rows with a NULL cost (price was unavailable when the call ran)
-- [x] Retry a model call that hits a temporary upstream rate limit (done in Phase 5 after it hit twice in real use; see below)
 - [ ] Log review: no secrets, every error carries session, adapter, operation, model
 - [ ] Short `readme.md`: setup, `config.json` reference, running, where logs live
 
-**Checkpoint 7:** a day of real use. Review `logs/error.log` and the ledger for surprises; fix what shows up.
+**Checkpoint:** a day of real use. Review `logs/error.log` and the ledger for surprises; fix what shows up.
 
----
-
-## After v1 (not planned yet)
-
+### Other version 1 items
 - Web UI over the Core API (sessions, audio players, cost views)
 - Discord adapter as the second adapter, to prove the pluggable contract
 - **Generic providers (direct keys, no OpenRouter).** Today the config shape (`providers` + model refs) already allows another OpenAI-compatible endpoint, but the code assumes OpenRouter specifics: the TTS call uses OpenRouter's `/audio/speech` Gemini route, cost comes from OpenRouter's usage/generation lookup, and audio input uses OpenRouter's request format. Making it generic means: a `type` per provider (`openrouter`, `openai`, `gemini`, ...) selecting the request/response adapter for TTS, audio input and cost extraction; a fallback cost source when a provider reports none; and no hard dependency on any one provider's key. Revisit once the OpenRouter path works end to end.
 - **Playback speed.** User-configurable audio speed (e.g. 1.25x, 1.5x). Applied after synthesis with ffmpeg's `atempo` filter (pitch preserved), so it costs no extra TTS and the cached original stays at normal speed. Config: a default under `models.tts` or a new `audio` group, plus a per-request override later (e.g. a Telegram command). Decide whether to cache sped-up variants or re-encode on delivery.
-- Deployment (Cloudflare or otherwise), multi-user BYOK, context summarization
+- Multi-user BYOK, context summarization
+- Optional LLM-written blog description for the audio caption (off by default)
+- Optional fallback model for when the main one stays rate-limited upstream
+- Jobs that survive a restart (today they live in memory)
+- API authentication, needed once anything outside the machine can reach it

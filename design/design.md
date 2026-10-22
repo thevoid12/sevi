@@ -1,11 +1,13 @@
-# sevi design (v1 draft)
+# sevi design (version 0)
+check [design](sevi-design-map.html) for the design of this version
+Status: version 0 is built and running; this file is revised as it is reviewed. Covers [usecase.md](usecase.md) UC-1 and, in version 1, UC-2's attachments.
 
-Status: draft, iterating. Covers [usecase.md](usecase.md) UC-1 and UC-2.
+Naming: **the prototype** is the original single-file CLI; **version 0** is the current working app (link to audio, voice and text follow-ups); **version 1** is the next round (attachments, hardening, readme, and the items under Version 1 in [implementation.md](implementation.md)).
 
 ## Goals
 
 - Blog URL in, audio out. Voice follow-up questions, audio answers, as long as needed.
-- General voice chat with an LLM, with file attachments (same engine).
+- General voice chat with an LLM (version 0). File attachments on top of it (version 1).
 - Chat surface is pluggable (Telegram, Discord, ...). The core knows nothing about any of them.
 - Web interface is ours, a separate client of the same core.
 - Any model provider via bring-your-own-key; models are config, not code.
@@ -77,7 +79,7 @@ GET  /v1/audio/{message_id}  the MP3 (range requests, so seeking works)
   - `audio`/`text` inside an existing session (follow-ups) and free chat: Phase 5-6.
 - Errors over HTTP: `{"error": {"message": <safe text>, "ref": <request id>}}`.
   Every response carries `X-Request-Id`; a caller may supply one.
-- The API binds to `app.listen` (localhost) with no authentication in v1.
+- The API binds to `app.listen` (localhost) with no authentication in version 0.
 
 ## Sessions and threading
 
@@ -114,7 +116,7 @@ text (the transcript for voice) and a `parent_id`: the message it was a reply to
     given and to say so when the answer is not in it.
 - Web: sessions are explicit (list, open, continue).
 - Long context: when a session outgrows the model window (1M tokens on the
-  chosen model, so far away), summarize older turns. Not needed for v1.
+  chosen model, so far away), summarize older turns. Not needed for version 0.
 
 ## Reply format (voice or text)
 
@@ -142,7 +144,7 @@ follow-up: voice -> LLM(whole session in time order + blog text, hears the audio
            format=voice: answer -> TTS -> audio     format=text: answer as text
 ```
 
-- v0 already does the blog path. Reuse its fetch, cleanup and chunking.
+- The prototype already did the blog path. Its fetch, cleanup and chunking were reused.
 - Answers should be written to be spoken: short, no markdown, no tables.
   System prompt enforces it. For text answers the same brevity applies unless
   asked otherwise.
@@ -180,7 +182,7 @@ by name and adds only a model ID. Config is grouped by concern (`app`,
   fragmented into small projects (litellm-style clients such as `voocel/litellm`
   and `codewandler/llm`, `lexlapax/go-llms`, `smhanov/llmhub`), none verified
   as widely used. Audio input and TTS are non-standard across providers, so
-  those two go over plain `net/http` anyway (v0 already does TTS this way).
+  those two go over plain `net/http` anyway (the prototype already did TTS this way).
   If a provider ever needs a native API, add an implementation of the same
   interface.
 - BYOK: keys referenced by env var name in config, never stored in the file,
@@ -235,7 +237,7 @@ is no provider call per generation.
 
 ## Storage
 
-| What | Needs | Local (v1 today) | Cloudflare |
+| What | Needs | Local (today) | Cloudflare |
 |---|---|---|---|
 | Sessions, messages, ledger, thread mapping | relational | SQLite | D1 |
 | Audio files, fetched blog text | blobs | disk | R2 |
@@ -246,11 +248,11 @@ SQL is written in `.sql` files and turned into typed Go by sqlc; the SQLite driv
 ## Hosting
 
 Cloudflare is cheap but Workers do not run Go natively (only via limited
-WASM). Also, v0 shells out (`os/exec`), likely for audio encoding, and Workers
+WASM). Also, the prototype shells out (`os/exec`), likely for audio encoding, and Workers
 cannot run ffmpeg. Options:
 
 - **A. Core in TypeScript on Workers.** Native D1/R2/Queues, near-free. Needs a
-  rewrite of v0 and an MP3 encoder in JS/WASM or a different audio output
+  rewrite of the Go code and an MP3 encoder in JS/WASM or a different audio output
   format. Workers CPU limits need the paid plan ($5/mo) for TTS-sized jobs.
 - **B. Core in Go on Cloudflare Containers.** Keeps Go and ffmpeg. Paid plan,
   scales to zero. Containers reach D1/R2 only via a Worker, adding glue.
@@ -258,24 +260,28 @@ cannot run ffmpeg. Options:
   testable today. Behind `Store`/`Blob` interfaces, move to B (or A) once the
   shape is proven. Adapters (Telegram via long polling locally, webhook later).
 
-**Decision: C for v1** (confirmed: everything local first, deployment decided after it works). It meets "use it today", keeps the working Go
+**Decision: C for version 0** (confirmed: everything local first, deployment decided after it works). It meets "use it today", keeps the working Go
 code, and does not lock in a hosting decision before the API has stabilised.
 Cloudflare migration is a later step, and the web UI can be Cloudflare Pages
 from the start because it only talks to the Core API.
 
-## v1 scope
+## Version 0 scope
 
-In:
+In (built):
 - Core in Go with Core API, SQLite, disk blobs.
 - Providers behind interfaces, OpenRouter default, models and STT mode in `config.json`.
-- Long blogs: all chunks stitched into one audio file.
-- Telegram adapter (long polling, allowlisted to my user ID only): link -> audio, reply with voice -> audio
-  answer, non-reply voice/text -> free chat, file attach.
-- Cost ledger, with a cost footer on replies.
+- Long blogs: all chunks stitched into one audio file; Yes/No before anything over `cost.confirm_over_usd`.
+- Telegram adapter (long polling, allowlisted to my user ID only): link -> audio;
+  reply with voice or text -> answer as a voice note or text; a message that is not a reply -> free chat.
+- Cost computed from tokens and stored prices, shown on every answer.
 
-Out (later):
-- Discord adapter, web UI, multi-user BYOK, Cloudflare deployment, context
-  summarization, async job callbacks.
+Version 1 (not in version 0):
+- File attachments (documents, images) as context, in any chat.
+- Hardening: a clear error text per failure class, graceful shutdown, ledger backfill, log review.
+- A readme. Discord adapter, web UI, multi-user BYOK, generic providers, playback speed,
+  context summarization, resumable jobs.
+
+Between the two: fixes found in the design review, then deployment (Cloudflare).
 
 ## Decisions
 
@@ -283,7 +289,7 @@ Out (later):
 - STT: configurable (`models.stt` present or omitted); default (omitted) is one call to an audio-capable model.
 - Long blogs: one stitched audio file.
 - Delivery: Telegram `sendAudio` (seek bar for long files).
-- TTS model, voice, chunk size: in `config.json`, defaults from v0.
+- TTS model, voice, chunk size: in `config.json`, defaults from the prototype.
 - Cost confirm: above a configurable threshold, Core replies with a rough
   cost and duration estimate (from character count and the observed per-character cost) and
   waits for a yes before running TTS.
@@ -296,7 +302,7 @@ Out (later):
 - ffmpeg stays a hard dependency (MP3 encode, chunk stitching, voice-note conversion). Revisit at deployment.
 - Language: blog audio is in the blog's language (TTS auto-detects). Follow-up answers match the language of my question.
 - Answer style: short, conversational, about 30-60 seconds, no markdown or lists. 'Longer' or 'explain more' goes deeper. Style prompt lives in `config.json`.
-- Failures: reply with the reason in one line. Retry a failed TTS chunk a couple of times; if it still fails, say which part failed instead of silently skipping (v0 skipped silently). Partial work is kept.
+- Failures: reply with the reason in one line. Retry a failed TTS chunk a couple of times; if it still fails, say which part failed instead of silently skipping (the prototype skipped silently). Partial work is kept.
 - Web UI: after Telegram works. Core API and cost ledger are shaped so it needs no core changes.
 - Attachments (UC-2): any file type is accepted and passed through to the LLM; the provider/model decides what it can read. Provider size limits apply, and a provider rejection is reported to the user as a plain error.
 - Everything tunable lives in `config.json`: models, voice, chunk size, thresholds, prompts, paths, log settings, allowlist, rates.
@@ -383,7 +389,7 @@ cmd/sevi/main.go          wire config, store, core, HTTP server, adapters
 internal/config/          config.json + env keys
 internal/core/            sessions, routing, pipeline, cost confirm
 internal/provider/        LLM / STT / TTS interfaces + openai-go and net/http impls
-internal/fetch/           Jina fetch, toSpeakable, chunk (from v0 main.go)
+internal/fetch/           Jina fetch, toSpeakable, chunk (from the prototype's main.go)
 internal/audio/           ffmpeg encode + stitch
 internal/store/           SQLite (sessions, messages, ledger, thread map, url cache)
 internal/blob/            disk audio storage
@@ -402,27 +408,27 @@ internal/adapter/telegram/  long polling, calls Core only over HTTP
 
 ### Build order
 
-1. Refactor v0 into `fetch`, `audio`, `provider/tts`; keep a CLI path that still works.
+1. Refactor the prototype into `fetch`, `audio`, `provider/tts`; keep a CLI path that still works.
 2. Config + Store + Blob + ledger writes on every provider call.
 3. Core pipeline for blog sessions and the HTTP API.
 4. Telegram adapter: link to audio, allowlist, status message, `sendAudio`.
 5. Cost estimate and confirm flow.
 6. Follow-ups: voice note to LLM (native audio) to TTS answer; thread mapping from replies.
-7. Free chat and file attachments (UC-2).
-8. Hardening: retries, error messages, cost footer.
+7. Free chat (built in step 6). File attachments: version 1.
+8. Hardening: version 1 (retries on rate limits were already done in version 0).
 
 Steps 1-4 give a usable bot today; 6 delivers UC-1 fully.
 
-## Known limitation (v1)
+## Known limitation (version 0)
 
 The provider layer is shaped to be generic (`providers` map, models refer to
-them by name) but v1 only implements OpenRouter's request formats for TTS,
+them by name) but version 0 only implements OpenRouter's request formats for TTS,
 audio input and cost reporting. Direct provider keys (OpenAI, Gemini, ...)
-need per-provider adapters; tracked under "After v1" in `implementation.md`.
+need per-provider adapters; tracked under Version 1 in `implementation.md`.
 
 ## Open questions
 
-1. **LLM model ID.** v0 contains only a TTS model (`google/gemini-3.8-flash-tts`),
+1. **LLM model ID.** The prototype contained only a TTS model (`google/gemini-3.8-flash-tts`),
    which cannot chat or hear audio. A separate chat/audio-input model ID is
    needed in `config.json`. To be chosen from OpenRouter's list at step 6.
 2. Confirm OpenRouter's audio-input request format for the chosen model (plain HTTP).

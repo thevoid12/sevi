@@ -1,0 +1,883 @@
+<title>Sevi Design Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout concept: an engineering review document. One claim per figure, each figure followed by the
+   decisions it hides and the question to push on. Diagrams use ink on paper with a single path color;
+   rust marks anything that is a risk or an open question. */
+:root {
+  --bg: #F3F5F6;
+  --surface: #FFFFFF;
+  --ink: #162026;
+  --muted: #56646C;
+  --line: #C7D1D6;
+  --accent: #0A6A87;
+  --accent-soft: #DCEFF5;
+  --flag: #B1432A;
+  --flag-soft: #F8E4DD;
+  --warn: #8C6400;
+  --warn-soft: #F6EBCB;
+  --ok: #2B7A4B;
+  --ok-soft: #DDF0E4;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1417; --surface: #172025; --ink: #E5ECEF; --muted: #92A3AC; --line: #2C3A41;
+    --accent: #5CC0DE; --accent-soft: #14323D; --flag: #F19070; --flag-soft: #3B2119;
+    --warn: #E3B341; --warn-soft: #382C0C; --ok: #6DC48C; --ok-soft: #14301F;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1417; --surface: #172025; --ink: #E5ECEF; --muted: #92A3AC; --line: #2C3A41;
+  --accent: #5CC0DE; --accent-soft: #14323D; --flag: #F19070; --flag-soft: #3B2119;
+  --warn: #E3B341; --warn-soft: #382C0C; --ok: #6DC48C; --ok-soft: #14301F;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.55 var(--sans);
+  padding-block: 28px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(1.7rem, 4.2vw, 2.5rem); font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; }
+
+header .lede { max-width: 66ch; color: var(--muted); margin-top: 14px; font-size: 1.05rem; }
+.eyebrow { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+
+nav { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 28px 0 8px; padding: 12px 0; border-block: 1px solid var(--line); font: 500 0.82rem var(--mono); }
+nav a { text-decoration: none; }
+nav a:hover { text-decoration: underline; }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 22px; }
+.status > div { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.status h3 { font: 500 0.75rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.status ul { margin: 0; padding-left: 1.1em; font-size: 0.93rem; }
+.status li { margin: 3px 0; }
+.status .built h3 { color: var(--ok); }
+.status .gaps h3 { color: var(--flag); }
+
+section { margin-top: 64px; scroll-margin-top: 16px; }
+section > .claim { color: var(--muted); max-width: 70ch; margin-top: 8px; }
+
+figure { margin: 22px 0 0; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.scroll svg { display: block; width: 100%; min-width: 820px; height: auto; color: var(--ink); }
+figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 10px; max-width: 78ch; }
+
+/* svg vocabulary */
+.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.box.core { stroke: var(--ink); stroke-width: 1.6; }
+.box.path { stroke: var(--accent); stroke-width: 1.6; fill: var(--accent-soft); }
+.box.risk { stroke: var(--flag); stroke-width: 1.6; fill: var(--flag-soft); }
+.box.later { stroke-dasharray: 5 4; fill: none; }
+.box.group { fill: none; stroke-dasharray: 3 4; }
+.dia { fill: var(--surface); stroke: var(--ink); stroke-width: 1.3; }
+.l { font: 500 12.5px var(--mono); fill: var(--ink); }
+.h { font: 600 13.5px var(--sans); fill: var(--ink); }
+.s { font: 400 11px var(--mono); fill: var(--muted); }
+.t { font: 400 11.5px var(--mono); fill: var(--ink); }
+.cap { font: 500 10.5px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; fill: var(--muted); }
+.f { fill: var(--flag); }
+.a { fill: var(--accent); }
+.arr { fill: none; stroke: var(--ink); stroke-width: 1.4; marker-end: url(#ah); }
+.arr.acc { stroke: var(--accent); marker-end: url(#ah-acc); }
+.arr.flag { stroke: var(--flag); marker-end: url(#ah-flag); }
+.arr.dash { stroke-dasharray: 5 4; }
+.rule { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 6 5; fill: none; }
+.chip-block { fill: var(--flag-soft); stroke: var(--flag); }
+.chip-work { fill: var(--warn-soft); stroke: var(--warn); }
+.chip-easy { fill: var(--ok-soft); stroke: var(--ok); }
+.chip-t-block { font: 600 11px var(--mono); fill: var(--flag); }
+.chip-t-work { font: 600 11px var(--mono); fill: var(--warn); }
+.chip-t-easy { font: 600 11px var(--mono); fill: var(--ok); }
+
+.decisions { margin-top: 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px 15px; min-width: 0; }
+.card h3 { margin-bottom: 6px; }
+.card p { font-size: 0.93rem; margin-top: 6px; }
+.card .why::before, .card .cost::before, .card .ask::before { font: 600 0.68rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; display: block; margin-bottom: 1px; }
+.card .why::before { content: "Why"; color: var(--accent); }
+.card .cost::before { content: "What it costs"; color: var(--muted); }
+.card .ask { background: var(--flag-soft); border-left: 3px solid var(--flag); padding: 8px 10px; border-radius: 0 4px 4px 0; margin-top: 10px; }
+.card .ask::before { content: "Push on this"; color: var(--flag); }
+
+.all h2 { margin-bottom: 4px; }
+.all .decisions { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.88rem; }
+
+@media (max-width: 520px) {
+  body { padding-top: 18px; }
+  nav { gap: 6px 14px; }
+  .card { padding: 12px 13px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1 L9 5 L0 9 z" fill="var(--ink)"/></marker>
+    <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1 L9 5 L0 9 z" fill="var(--accent)"/></marker>
+    <marker id="ah-flag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1 L9 5 L0 9 z" fill="var(--flag)"/></marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Version 0 · design review</p>
+  <h1>Sevi turns blog links into audio you can question by voice</h1>
+  <p class="lede">You send a link in Telegram and get the blog back as one audio file. You reply to any message with a voice note or text to ask about it, and the answer comes back as a voice note or as text. It runs on your machine for one person. This page draws the mechanism behind each part, then lists the choices worth arguing with.</p>
+
+  <nav aria-label="Sections">
+    <a href="#overview">Overview</a>
+    <a href="#blog">Blog link</a>
+    <a href="#threads">Conversations</a>
+    <a href="#turn">One question</a>
+    <a href="#cost">Cost</a>
+    <a href="#data">Data</a>
+    <a href="#deploy">Deployment</a>
+    <a href="#questions">All the questions</a>
+  </nav>
+
+  <div class="status">
+    <div class="built">
+      <h3>Built and tested</h3>
+      <ul>
+        <li>Link to one audio file, with a Yes/No question before anything over $0.20</li>
+        <li>Voice or text follow-ups, threaded by Telegram replies</li>
+        <li>Voice note or text answer, chosen per message</li>
+        <li>Costs computed from tokens and a stored price, checked weekly against the provider</li>
+        <li>Retries with a visible "busy, trying again" message</li>
+      </ul>
+    </div>
+    <div class="gaps">
+      <h3>Not built yet</h3>
+      <ul>
+        <li>Documents and other attachments (version 1; Telegram ignores them silently for now)</li>
+        <li>Any login on the API, which only listens on localhost</li>
+        <li>A fallback model, a web page, a Discord adapter</li>
+        <li>Jobs that survive a restart (today they live in memory)</li>
+        <li>A readme and a log review (version 1)</li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ OVERVIEW ============================ -->
+<section id="overview">
+  <p class="eyebrow">The shape</p>
+  <h2>Everything crosses one HTTP line</h2>
+  <p class="claim">Chat apps are thin adapters. They know their own platform and nothing else. The Core holds every rule and talks to the outside services. That one line is what lets a Discord adapter or a web page be added without touching the Core.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 570" role="img" aria-label="Chat apps connect through adapters over HTTP to the Core API; the Core uses OpenRouter and Jina outside, and SQLite, disk and ffmpeg locally.">
+      <text class="cap" x="20" y="28">Where you are</text>
+      <text class="cap" x="215" y="28">Adapters</text>
+      <text class="cap" x="440" y="28">Core API</text>
+      <text class="cap" x="630" y="28">Core</text>
+      <text class="cap" x="860" y="28">Outside services</text>
+
+      <rect class="box" x="20" y="70" width="140" height="56" rx="6"/>
+      <text class="h" x="90" y="94" text-anchor="middle">Telegram</text>
+      <text class="s" x="90" y="112" text-anchor="middle">your phone</text>
+      <rect class="box later" x="20" y="170" width="140" height="56" rx="6"/>
+      <text class="h" x="90" y="194" text-anchor="middle">Discord</text>
+      <text class="s" x="90" y="212" text-anchor="middle">not built</text>
+      <rect class="box later" x="20" y="270" width="140" height="56" rx="6"/>
+      <text class="h" x="90" y="294" text-anchor="middle">Web page</text>
+      <text class="s" x="90" y="312" text-anchor="middle">not built</text>
+
+      <path class="arr" d="M160 98 H215"/>
+      <path class="arr dash" d="M160 198 H215"/>
+      <path class="arr dash" d="M160 298 H215"/>
+
+      <rect class="box path" x="215" y="70" width="160" height="56" rx="6"/>
+      <text class="h" x="295" y="94" text-anchor="middle">Telegram adapter</text>
+      <text class="s" x="295" y="112" text-anchor="middle">long-polls the Bot API</text>
+      <rect class="box later" x="215" y="170" width="160" height="56" rx="6"/>
+      <text class="h" x="295" y="194" text-anchor="middle">Discord adapter</text>
+      <text class="s" x="295" y="212" text-anchor="middle">anyone can write one</text>
+      <rect class="box later" x="215" y="270" width="160" height="56" rx="6"/>
+      <text class="h" x="295" y="294" text-anchor="middle">Web client</text>
+      <text class="s" x="295" y="312" text-anchor="middle">history, costs, players</text>
+
+      <path class="rule" d="M408 44 V430"/>
+      <text class="s f" x="408" y="446" text-anchor="middle">only HTTP + JSON crosses</text>
+      <text class="s f" x="408" y="460" text-anchor="middle">this line</text>
+      <path class="arr acc" d="M375 98 H440"/>
+      <path class="arr dash" d="M375 198 H440"/>
+      <path class="arr dash" d="M375 298 H440"/>
+
+      <rect class="box core" x="440" y="70" width="150" height="250" rx="6"/>
+      <text class="h" x="515" y="94" text-anchor="middle">HTTP API</text>
+      <text class="s" x="515" y="110" text-anchor="middle">127.0.0.1:8787</text>
+      <text class="t" x="452" y="144">POST /v1/messages</text>
+      <text class="t" x="452" y="166">GET  /v1/jobs/{id}</text>
+      <text class="t" x="452" y="188">GET  /v1/audio/{id}</text>
+      <text class="t" x="452" y="210">POST /v1/threads</text>
+      <text class="t" x="452" y="232">GET  /v1/sessions/{id}</text>
+      <text class="s" x="452" y="268">request id on every call</text>
+      <text class="s" x="452" y="284">no login (localhost only)</text>
+      <path class="arr" d="M590 195 H630"/>
+
+      <rect class="box core" x="630" y="70" width="190" height="330" rx="6"/>
+      <rect class="box" x="645" y="106" width="160" height="52" rx="5"/>
+      <text class="h" x="725" y="128" text-anchor="middle">Jobs</text>
+      <text class="s" x="725" y="146" text-anchor="middle">in memory, polled</text>
+      <rect class="box path" x="645" y="172" width="160" height="52" rx="5"/>
+      <text class="h" x="725" y="194" text-anchor="middle">Blog pipeline</text>
+      <text class="s" x="725" y="212" text-anchor="middle">link to audio</text>
+      <rect class="box path" x="645" y="238" width="160" height="52" rx="5"/>
+      <text class="h" x="725" y="260" text-anchor="middle">Follow-up turns</text>
+      <text class="s" x="725" y="278" text-anchor="middle">voice or text to answer</text>
+      <rect class="box" x="645" y="304" width="160" height="52" rx="5"/>
+      <text class="h" x="725" y="326" text-anchor="middle">Price book</text>
+      <text class="s" x="725" y="344" text-anchor="middle">tokens × stored price</text>
+      <text class="s" x="725" y="386" text-anchor="middle">decides; never talks to a chat app</text>
+
+      <rect class="box" x="860" y="70" width="160" height="70" rx="6"/>
+      <text class="h" x="940" y="92" text-anchor="middle">OpenRouter chat</text>
+      <text class="s" x="940" y="110" text-anchor="middle">Gemini 3.5 flash-lite</text>
+      <text class="s" x="940" y="126" text-anchor="middle">hears audio, returns JSON</text>
+      <rect class="box" x="860" y="156" width="160" height="70" rx="6"/>
+      <text class="h" x="940" y="178" text-anchor="middle">OpenRouter speech</text>
+      <text class="s" x="940" y="196" text-anchor="middle">Gemini 3.8 flash TTS</text>
+      <text class="s" x="940" y="212" text-anchor="middle">voice: Kore</text>
+      <rect class="box" x="860" y="242" width="160" height="50" rx="6"/>
+      <text class="h" x="940" y="264" text-anchor="middle">OpenRouter list</text>
+      <text class="s" x="940" y="280" text-anchor="middle">public model prices</text>
+      <rect class="box" x="860" y="308" width="160" height="50" rx="6"/>
+      <text class="h" x="940" y="330" text-anchor="middle">Jina Reader</text>
+      <text class="s" x="940" y="346" text-anchor="middle">web page to text</text>
+      <path class="arr" d="M820 105 H860"/>
+      <path class="arr" d="M820 191 H860"/>
+      <path class="arr" d="M820 267 H860"/>
+      <path class="arr" d="M820 333 H860"/>
+
+      <path class="arr" d="M660 400 V424 H515 V470"/>
+      <path class="arr" d="M725 400 V470"/>
+      <path class="arr" d="M790 400 V424 H885 V470"/>
+      <rect class="box" x="440" y="470" width="150" height="56" rx="6"/>
+      <text class="h" x="515" y="494" text-anchor="middle">SQLite</text>
+      <text class="s" x="515" y="512" text-anchor="middle">data/sevi.db</text>
+      <rect class="box" x="650" y="470" width="150" height="56" rx="6"/>
+      <text class="h" x="725" y="494" text-anchor="middle">Disk blobs</text>
+      <text class="s" x="725" y="512" text-anchor="middle">audio files</text>
+      <rect class="box" x="810" y="470" width="150" height="56" rx="6"/>
+      <text class="h" x="885" y="494" text-anchor="middle">ffmpeg</text>
+      <text class="s" x="885" y="512" text-anchor="middle">mp3 · opus · ogg→mp3</text>
+
+      <rect class="box" x="20" y="470" width="150" height="56" rx="6"/>
+      <text class="h" x="95" y="494" text-anchor="middle">config.json</text>
+      <text class="s" x="95" y="512" text-anchor="middle">models, limits, voice</text>
+      <text class="s" x="20" y="552">Dashed = designed for, not built.   Keys live in .env, never in config.json.</text>
+    </svg>
+    </div>
+    <figcaption>The Telegram adapter runs inside the same program as the Core, yet it only reaches the Core through the HTTP API, exactly as an outside program would. That keeps the adapter contract honest.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>Adapters use HTTP even when they share a process</h3>
+      <p class="why">A Discord adapter or the web page can be written in any language, run anywhere, and cannot reach into Core internals.</p>
+      <p class="cost">Voice notes travel as base64 inside JSON, and every message pays a localhost hop that a function call would not.</p>
+      <p class="ask">Is a pluggable adapter layer worth that for a one-person tool, or should the adapter call Core directly until a second adapter exists?</p>
+    </div>
+    <div class="card">
+      <h3>The Core knows no platform</h3>
+      <p class="why">Threading, voice, text and cost rules are written once. An adapter only turns "a reply to message 13" into a handle Core understands.</p>
+      <p class="cost">Anything platform-specific that users like (buttons, edit-in-place status) has to be expressed as generic events and rebuilt in each adapter.</p>
+      <p class="ask">Are the event kinds (progress, confirm, error, cost, done) enough for a web page, or will it want something richer?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ BLOG LINK ============================ -->
+<section id="blog">
+  <p class="eyebrow">Journey one</p>
+  <h2>A link becomes one audio file, and money is asked for first</h2>
+  <p class="claim">Every step that can be skipped is skipped: a link already voiced costs nothing, the page text is cached, and anything the price book estimates above $0.20 waits for a Yes.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 530" role="img" aria-label="Flow from a shared link: check the audio cache, read the page, estimate cost, ask for confirmation above $0.20, speak in chunks, stitch and save, deliver the audio file.">
+      <rect class="box path" x="20" y="50" width="190" height="64" rx="6"/>
+      <text class="h" x="115" y="76" text-anchor="middle">You send a link</text>
+      <text class="s" x="115" y="94" text-anchor="middle">a status message appears</text>
+      <path class="arr acc" d="M210 82 H295"/>
+
+      <polygon class="dia" points="400,34 505,82 400,130 295,82"/>
+      <text class="t" x="400" y="78" text-anchor="middle">Same link, same</text>
+      <text class="t" x="400" y="94" text-anchor="middle">voice already made?</text>
+      <path class="arr" d="M505 82 H640"/>
+      <text class="s a" x="560" y="74" text-anchor="middle">yes</text>
+      <rect class="box" x="640" y="50" width="250" height="64" rx="6"/>
+      <text class="h" x="765" y="76" text-anchor="middle">Reuse the stored audio</text>
+      <text class="s" x="765" y="94" text-anchor="middle">sent at once · $0.00 · no provider call</text>
+      <path class="arr acc" d="M400 130 V160 H120 V190"/>
+      <text class="s a" x="412" y="152">no</text>
+
+      <rect class="box" x="20" y="190" width="200" height="64" rx="6"/>
+      <text class="h" x="120" y="216" text-anchor="middle">Read the page</text>
+      <text class="s" x="120" y="234" text-anchor="middle">Jina → clean text, cached</text>
+      <path class="arr acc" d="M220 222 H250"/>
+      <rect class="box" x="250" y="190" width="200" height="64" rx="6"/>
+      <text class="h" x="350" y="216" text-anchor="middle">Estimate cost</text>
+      <text class="s" x="350" y="234" text-anchor="middle">tokens × stored price</text>
+      <path class="arr acc" d="M450 222 H465"/>
+
+      <polygon class="dia" points="560,174 655,222 560,270 465,222"/>
+      <text class="t" x="560" y="219" text-anchor="middle">Estimate</text>
+      <text class="t" x="560" y="235" text-anchor="middle">over $0.20?</text>
+      <path class="arr acc" d="M655 222 H700"/>
+      <text class="s a" x="677" y="214" text-anchor="middle">no</text>
+      <path class="arr flag" d="M560 270 V330"/>
+      <text class="s f" x="572" y="304">yes</text>
+
+      <rect class="box path" x="700" y="190" width="200" height="64" rx="6"/>
+      <text class="h" x="800" y="216" text-anchor="middle">Speak the text</text>
+      <text class="s" x="800" y="234" text-anchor="middle">3,000-char chunks · Gemini TTS</text>
+
+      <rect class="box risk" x="460" y="330" width="200" height="64" rx="6"/>
+      <text class="h" x="560" y="356" text-anchor="middle">Ask Yes / No</text>
+      <text class="s" x="560" y="374" text-anchor="middle">buttons · question waits in DB</text>
+      <path class="arr flag" d="M660 362 H750 V254"/>
+      <text class="s f" x="705" y="354" text-anchor="middle">Yes</text>
+      <text class="s" x="460" y="414">No: cancelled, nothing spent.</text>
+
+      <path class="arr acc" d="M900 222 H960 V462 H900"/>
+      <rect class="box path" x="700" y="430" width="200" height="64" rx="6"/>
+      <text class="h" x="800" y="456" text-anchor="middle">Stitch, encode, save</text>
+      <text class="s" x="800" y="474" text-anchor="middle">MP3 · audio cache · ledger</text>
+      <path class="arr acc" d="M700 462 H660"/>
+      <rect class="box path" x="440" y="430" width="220" height="64" rx="6"/>
+      <text class="h" x="550" y="456" text-anchor="middle">Audio file arrives</text>
+      <text class="s" x="550" y="474" text-anchor="middle">title · minutes · $cost</text>
+      <text class="s" x="20" y="470">Failure at chunk N: the job stops, says which</text>
+      <text class="s" x="20" y="486">part failed, and keeps the finished chunks.</text>
+    </svg>
+    </div>
+    <figcaption>The $0.20 gate is checked against an estimate made before any speech is bought. In use, an 8,722-character blog was estimated at $0.125 and billed $0.121.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>One stitched MP3 per blog</h3>
+      <p class="why">One file is one thing to play, seek and reply to. You asked for it.</p>
+      <p class="cost">A very long blog is one big upload. Telegram caps bot uploads at 50 MB, which is hours of audio at this bitrate, so it is far away but real.</p>
+      <p class="ask">Would chapters or parts be better for a two-hour read, so a reply can point at a part?</p>
+    </div>
+    <div class="card">
+      <h3>Page text and audio are cached forever</h3>
+      <p class="why">Re-sharing a link costs $0.00 and is instant. The audio cache is keyed by link, speech model and voice.</p>
+      <p class="cost">A blog that is edited later is not noticed. Changing the voice or speech model re-speaks every blog on first use.</p>
+      <p class="ask">Should cached text expire, or should there be a "refresh" you can ask for from Telegram?</p>
+    </div>
+    <div class="card">
+      <h3>Ask before spending over $0.20</h3>
+      <p class="why">Cost stays visible and under your control. The threshold is a config value.</p>
+      <p class="cost">A prompt interrupts. Anything just under the line runs unattended.</p>
+      <p class="ask">Is a fixed dollar line right, or should it be per-day budget so many small blogs also stop?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ CONVERSATIONS ============================ -->
+<section id="threads">
+  <p class="eyebrow">Journey two</p>
+  <h2>Replies point at a message; the model reads the whole blog's conversation</h2>
+  <p class="claim">Which message you reply to only decides which blog the question belongs to and what "that" means. The model is always given everything said so far about that blog, in time order.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 490" role="img" aria-label="Left: a reply tree where two questions reply to the blog audio and a third replies to answer 1. Right: the same messages flattened by time, with the replied-to message marked.">
+      <text class="cap" x="20" y="28">What you tap: replies form a tree</text>
+      <rect class="box core" x="115" y="50" width="150" height="48" rx="6"/>
+      <text class="h" x="190" y="72" text-anchor="middle">Blog audio</text>
+      <text class="s" x="190" y="88" text-anchor="middle">12:00</text>
+      <rect class="box" x="30" y="150" width="130" height="48" rx="6"/>
+      <text class="h" x="95" y="172" text-anchor="middle">Q1 voice</text>
+      <text class="s" x="95" y="188" text-anchor="middle">12:03</text>
+      <rect class="box" x="230" y="150" width="130" height="48" rx="6"/>
+      <text class="h" x="295" y="172" text-anchor="middle">Q2 voice</text>
+      <text class="s" x="295" y="188" text-anchor="middle">12:09</text>
+      <rect class="box" x="30" y="250" width="130" height="48" rx="6"/>
+      <text class="h" x="95" y="272" text-anchor="middle">Answer 1</text>
+      <text class="s" x="95" y="288" text-anchor="middle">12:03</text>
+      <rect class="box" x="230" y="250" width="130" height="48" rx="6"/>
+      <text class="h" x="295" y="272" text-anchor="middle">Answer 2</text>
+      <text class="s" x="295" y="288" text-anchor="middle">12:09</text>
+      <rect class="box path" x="30" y="350" width="130" height="48" rx="6"/>
+      <text class="h" x="95" y="372" text-anchor="middle">Q3 voice</text>
+      <text class="s" x="95" y="388" text-anchor="middle">12:15 · new</text>
+      <path class="arr" d="M95 150 L150 98"/>
+      <path class="arr" d="M295 150 L230 98"/>
+      <path class="arr" d="M95 250 V198"/>
+      <path class="arr" d="M295 250 V198"/>
+      <path class="arr flag" d="M95 350 V298"/>
+      <text class="s f" x="108" y="328">replies to</text>
+      <text class="s" x="20" y="440">Stored as parent_id on each message.</text>
+      <text class="s" x="20" y="456">Telegram's own reply gives the handle.</text>
+
+      <path class="arr acc" d="M375 250 H462"/>
+      <text class="s a" x="418" y="240" text-anchor="middle">flatten</text>
+      <text class="s a" x="418" y="268" text-anchor="middle">by time</text>
+
+      <text class="cap" x="480" y="28">What the model is given for Q3</text>
+      <rect class="box core" x="480" y="44" width="540" height="436" rx="6"/>
+      <rect class="box" x="494" y="58" width="512" height="42" rx="5"/>
+      <text class="h" x="508" y="76">The blog's text</text>
+      <text class="s" x="508" y="91">from the page cache (a free chat gets a note saying there is no blog)</text>
+
+      <text class="s" x="508" y="128">TIMELINE, OLDEST FIRST</text>
+      <text class="t" x="508" y="156">[12:00] Assistant: (read the blog aloud)</text>
+      <text class="t" x="508" y="190">[12:03] User: Q1 transcript</text>
+      <rect class="box risk" x="498" y="206" width="504" height="26" rx="4" style="fill:none"/>
+      <text class="t" x="508" y="224">[12:03] Assistant: Answer 1</text>
+      <text class="s f" x="992" y="224" text-anchor="end">you replied to this one</text>
+      <text class="t" x="508" y="258">[12:09] User: Q2 transcript</text>
+      <text class="t" x="508" y="292">[12:09] Assistant: Answer 2</text>
+
+      <path class="rule" d="M508 314 H1000"/>
+      <text class="s" x="508" y="338">NOTE TO THE MODEL</text>
+      <text class="t" x="508" y="360">The user is replying to: [12:03] Answer 1</text>
+      <text class="s" x="508" y="388">NEW MESSAGE, SENT 12:15</text>
+      <text class="t" x="508" y="410">(spoken, in the attached audio)</text>
+      <text class="s a" x="508" y="452">Replying to Q1, Q2 or the blog audio gives the same timeline.</text>
+      <text class="s a" x="508" y="468">Only the note changes. Q3 still sees Answer 2.</text>
+    </svg>
+    </div>
+    <figcaption>This is the rule you asked for: one thread per blog. The reply tree is kept (for the web page, and for the "replying to" note), but it does not limit what the model sees.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>Whole session in context, no branches</h3>
+      <p class="why">A question asked from an old message still sees everything said since. The model can say "as I explained earlier" truthfully.</p>
+      <p class="cost">Every turn re-sends the blog and the whole history. Providers cache the repeated prefix (billed at a tenth), and the Gemini lite window is about 1M tokens, but a very long conversation grows without limit.</p>
+      <p class="ask">When a session gets long, do you want older turns summarised, or a "start fresh on this blog" command?</p>
+    </div>
+    <div class="card">
+      <h3>A reply to an unknown message is refused</h3>
+      <p class="why">Answering without the blog invented "deep work" once. Now Sevi says it does not remember the message and tells you to resend the link.</p>
+      <p class="cost">Replies to audio sent before threads existed fail until the link is resent (free, thanks to the cache).</p>
+      <p class="ask">Would it be better to guess from the chat's last blog than to refuse?</p>
+    </div>
+    <div class="card">
+      <h3>A message that replies to nothing starts a new chat</h3>
+      <p class="why">Nothing attaches to an old thread by accident. The model is told it has no document.</p>
+      <p class="cost">You cannot "just carry on" without tapping reply.</p>
+      <p class="ask">Is tapping reply on every follow-up acceptable on a phone, many times a day?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ONE QUESTION ============================ -->
+<section id="turn">
+  <p class="eyebrow">Journey two, one step</p>
+  <h2>One model call hears you, writes the answer and decides how to deliver it</h2>
+  <p class="claim">A voice note goes to the model as audio. It returns a transcript, the answer and a format in one JSON object, so the transcript is stored without a separate transcription call.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 450" role="img" aria-label="Voice note converted to MP3, sent with context to the chat model, which returns JSON with transcript, format and answer; voice answers are spoken and encoded as Opus, text answers are sent as text.">
+      <rect class="box" x="20" y="40" width="150" height="64" rx="6"/>
+      <text class="h" x="95" y="66" text-anchor="middle">Voice note</text>
+      <text class="s" x="95" y="84" text-anchor="middle">OGG/Opus from Telegram</text>
+      <path class="arr acc" d="M170 72 H205"/>
+      <rect class="box" x="205" y="40" width="150" height="64" rx="6"/>
+      <text class="h" x="280" y="66" text-anchor="middle">ffmpeg</text>
+      <text class="s" x="280" y="84" text-anchor="middle">to MP3 for the model</text>
+      <path class="arr acc" d="M355 72 H390"/>
+
+      <rect class="box path" x="390" y="30" width="250" height="132" rx="6"/>
+      <text class="h" x="402" y="54">Chat model</text>
+      <text class="s" x="402" y="70">Gemini 3.5 flash-lite</text>
+      <text class="t" x="402" y="92">+ system prompt (style, format rule)</text>
+      <text class="t" x="402" y="108">+ the blog text</text>
+      <text class="t" x="402" y="124">+ the timeline with timestamps</text>
+      <text class="t" x="402" y="140">+ "replying to" note</text>
+      <text class="t" x="402" y="156">+ the audio itself</text>
+      <path class="arr acc" d="M640 72 H680"/>
+      <rect class="box core" x="680" y="40" width="340" height="64" rx="6"/>
+      <text class="t" x="694" y="64">{ "transcript": "...",</text>
+      <text class="t" x="694" y="80">  "format": "voice" | "text",</text>
+      <text class="t" x="694" y="96">  "answer": "..." }</text>
+
+      <text class="s" x="390" y="182">429 / 5xx: waits 3·6·12·24 s, says "busy".</text>
+      <text class="s" x="20" y="204">If models.stt is set, a transcriber hears the audio first and the chat model only gets text.</text>
+
+      <path class="arr acc" d="M850 104 V212"/>
+      <polygon class="dia" points="850,212 945,260 850,308 755,260"/>
+      <text class="t" x="850" y="257" text-anchor="middle">format?</text>
+      <text class="s" x="838" y="136" text-anchor="end">default = reply.voice;</text>
+      <text class="s" x="838" y="152" text-anchor="end">only the NEW message</text>
+      <text class="s" x="838" y="168" text-anchor="end">can override it</text>
+
+      <path class="arr acc" d="M755 260 H720"/>
+      <text class="s a" x="738" y="250" text-anchor="middle">voice</text>
+      <rect class="box path" x="520" y="228" width="200" height="64" rx="6"/>
+      <text class="h" x="620" y="254" text-anchor="middle">Speak the answer</text>
+      <text class="s" x="620" y="272" text-anchor="middle">TTS · billed per second</text>
+      <path class="arr acc" d="M520 260 H470"/>
+      <rect class="box path" x="270" y="228" width="200" height="64" rx="6"/>
+      <text class="h" x="370" y="254" text-anchor="middle">ffmpeg</text>
+      <text class="s" x="370" y="272" text-anchor="middle">to OGG/Opus, 32 kbps</text>
+      <path class="arr acc" d="M270 260 H240"/>
+      <rect class="box core" x="20" y="228" width="220" height="64" rx="6"/>
+      <text class="h" x="130" y="254" text-anchor="middle">Voice note reply</text>
+      <text class="s" x="130" y="272" text-anchor="middle">caption: $cost</text>
+
+      <path class="arr acc" d="M850 308 V350"/>
+      <text class="s a" x="862" y="334">text</text>
+      <rect class="box core" x="710" y="350" width="310" height="64" rx="6"/>
+      <text class="h" x="865" y="376" text-anchor="middle">Text message</text>
+      <text class="s" x="865" y="394" text-anchor="middle">cost on the last line · no speech bought</text>
+
+      <text class="s" x="20" y="342">Every call writes a ledger row:</text>
+      <text class="s" x="20" y="358">chat: tokens × price · speech: seconds × 25 × price</text>
+    </svg>
+    </div>
+    <figcaption>The transcript comes back with the answer, so the question is stored as text and later turns send text, not old audio. Asking for text skips the speech model entirely, which is the cheap path.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>Transcript, answer and format in one call</h3>
+      <p class="why">One round trip, one bill, and the model uses the real audio (tone, language) to decide.</p>
+      <p class="cost">The model must follow a JSON contract. With the 3.5 model one "answer as text" was carried forward to later turns; the prompt now says a request applies to that turn only.</p>
+      <p class="ask">Are you comfortable with the model, not a rule, deciding voice versus text?</p>
+    </div>
+    <div class="card">
+      <h3>A voice note reply, not an audio file</h3>
+      <p class="why">It looks like a conversation: waveform bubble, inline playback, Telegram's own speed button. The blog stays an audio file with a seek bar.</p>
+      <p class="cost">No title and no seek bar on answers; long answers are awkward to scrub.</p>
+      <p class="ask">Fine for 30-60 second answers; is it still right if you ask for long explanations?</p>
+    </div>
+    <div class="card">
+      <h3>Chat model is plain config</h3>
+      <p class="why">Tested: a 3.8 model needed only the model line. A model that cannot hear audio needs <code>models.stt</code> set.</p>
+      <p class="cost">Speech models other than Gemini's are untested. Sample rate, tokens per second and voice names are assumed.</p>
+      <p class="ask">Do you expect to swap the speech model, or only the chat model?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ COST ============================ -->
+<section id="cost">
+  <p class="eyebrow">Money</p>
+  <h2>Cost is arithmetic on a stored price, checked once a week</h2>
+  <p class="claim">No provider is asked what a call cost. Tokens come from the response (or from audio length), the price comes from SQLite, and the stored price is refetched when it is older than seven days.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 380" role="img" aria-label="A call's tokens are multiplied by the stored per-token price to give the ledger cost; when the price is older than seven days the model list is refetched, stored prices are updated and one real charge is compared.">
+      <rect class="box" x="20" y="40" width="190" height="64" rx="6"/>
+      <text class="h" x="115" y="66" text-anchor="middle">A call finishes</text>
+      <text class="s" x="115" y="84" text-anchor="middle">chat, transcription, speech</text>
+      <path class="arr acc" d="M210 72 H250"/>
+      <rect class="box" x="250" y="30" width="270" height="84" rx="6"/>
+      <text class="h" x="262" y="52">Count the tokens</text>
+      <text class="t" x="262" y="72">chat: from the response,</text>
+      <text class="t" x="262" y="86">  audio and cached parts apart</text>
+      <text class="t" x="262" y="102">speech: seconds × 25 + chars ÷ 4.5</text>
+      <path class="arr acc" d="M520 72 H560"/>
+      <rect class="box path" x="560" y="40" width="190" height="64" rx="6"/>
+      <text class="h" x="655" y="66" text-anchor="middle">× price per token</text>
+      <text class="s" x="655" y="84" text-anchor="middle">row in model_prices</text>
+      <path class="arr acc" d="M750 72 H790"/>
+      <rect class="box core" x="790" y="40" width="230" height="64" rx="6"/>
+      <text class="h" x="905" y="66" text-anchor="middle">Ledger row</text>
+      <text class="s" x="905" y="84" text-anchor="middle">tokens · cost_usd · generation id</text>
+
+      <path class="arr dash" d="M655 104 V132 H160 V210"/>
+      <text class="s" x="410" y="126" text-anchor="middle">reads the row, checks its age</text>
+      <rect class="box group" x="20" y="146" width="1000" height="214" rx="8"/>
+      <text class="cap" x="1008" y="170" text-anchor="end">Price freshness · cost.price_ttl_days = 7</text>
+
+      <polygon class="dia" points="160,210 255,262 160,314 65,262"/>
+      <text class="t" x="160" y="258" text-anchor="middle">Row younger</text>
+      <text class="t" x="160" y="274" text-anchor="middle">than 7 days?</text>
+      <text class="s a" x="168" y="340">yes: use it, no network call</text>
+      <path class="arr acc" d="M160 314 V326"/>
+      <path class="arr flag" d="M255 262 H300"/>
+      <text class="s f" x="278" y="254" text-anchor="middle">no</text>
+
+      <rect class="box" x="300" y="234" width="200" height="56" rx="6"/>
+      <text class="h" x="400" y="258" text-anchor="middle">Fetch the model list</text>
+      <text class="s" x="400" y="276" text-anchor="middle">one public call, all models</text>
+      <path class="arr acc" d="M500 262 H530"/>
+      <rect class="box" x="530" y="234" width="220" height="56" rx="6"/>
+      <text class="h" x="640" y="258" text-anchor="middle">Update every stored price</text>
+      <text class="s" x="640" y="276" text-anchor="middle">log any price that changed</text>
+      <path class="arr acc" d="M750 262 H780"/>
+      <rect class="box risk" x="780" y="228" width="224" height="68" rx="6"/>
+      <text class="h" x="892" y="252" text-anchor="middle">Compare one real charge</text>
+      <text class="s" x="892" y="270" text-anchor="middle">newest ledger row vs provider</text>
+      <text class="s" x="892" y="285" text-anchor="middle">warn if over 10% and $0.001 off</text>
+    </svg>
+    </div>
+    <figcaption>Measured against OpenRouter on real calls: speech within 0.1%, chat exact. One voice turn was over-priced by 119% until cached tokens were priced separately; that turn now computes to within about 22% above the real charge.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>Compute, do not look up</h3>
+      <p class="why">The provider's charge record can take a minute to appear; computing it makes the cost known the moment the audio is, so the cost is in the caption.</p>
+      <p class="cost">Speech tokens are derived (25 per second, observed), so a model with a different billing unit would be wrong until checked. Prices come from OpenRouter's list only.</p>
+      <p class="ask">Is a weekly self-check enough, or should every Nth call be reconciled?</p>
+    </div>
+    <div class="card">
+      <h3>Failed attempts are not billed in the ledger</h3>
+      <p class="why">A retried 429 produces one ledger row, from the attempt that worked.</p>
+      <p class="cost">If a provider bills a failed attempt, the ledger undercounts. Not seen so far.</p>
+      <p class="ask">Do you want the OpenRouter account balance shown beside the ledger total as a cross-check?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DATA ============================ -->
+<section id="data">
+  <p class="eyebrow">Storage</p>
+  <h2>Eight tables; the messages table is the conversation</h2>
+  <p class="claim">Everything the model needs is rebuilt from rows: the timeline from <code>messages</code>, the blog from <code>page_cache</code>, the money from <code>ledger</code>. SQL lives in files and is compiled to typed Go by sqlc.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 520" role="img" aria-label="Tables and their links: sessions own messages, ledger rows and pending questions; messages point at their parent message; thread_map maps chat handles to messages; caches and prices stand alone.">
+      <rect class="box" x="100" y="30" width="230" height="84" rx="6"/>
+      <text class="h" x="114" y="52">pending</text>
+      <text class="t" x="114" y="72">session_id → sessions</text>
+      <text class="t" x="114" y="88">kind · payload · status</text>
+      <text class="s" x="114" y="104">the Yes / No question</text>
+
+      <rect class="box core" x="440" y="30" width="210" height="84" rx="6"/>
+      <text class="h" x="454" y="52">sessions</text>
+      <text class="t" x="454" y="72">kind: blog | chat</text>
+      <text class="t" x="454" y="88">url (blog only)</text>
+      <text class="s" x="454" y="104">one conversation</text>
+
+      <rect class="box" x="100" y="190" width="230" height="134" rx="6"/>
+      <text class="h" x="114" y="212">ledger</text>
+      <text class="t" x="114" y="232">session_id → sessions</text>
+      <text class="t" x="114" y="248">role: llm | stt | tts</text>
+      <text class="t" x="114" y="264">model · tokens in / out</text>
+      <text class="t" x="114" y="280">cost_usd (NULL = unpriced)</text>
+      <text class="s" x="114" y="302">one row per provider call</text>
+
+      <rect class="box core" x="440" y="190" width="210" height="134" rx="6"/>
+      <text class="h" x="454" y="212">messages</text>
+      <text class="t" x="454" y="232">session_id → sessions</text>
+      <text class="t" x="454" y="248">parent_id → messages</text>
+      <text class="t" x="454" y="264">role · format voice|text</text>
+      <text class="t" x="454" y="280">text · transcript or answer</text>
+      <text class="t" x="454" y="296">audio_key → disk blob</text>
+
+      <rect class="box" x="760" y="190" width="230" height="100" rx="6"/>
+      <text class="h" x="774" y="212">thread_map</text>
+      <text class="t" x="774" y="232">adapter + thread_ref (unique)</text>
+      <text class="t" x="774" y="248">message_id → messages</text>
+      <text class="s" x="774" y="270">e.g. telegram 957680789:13</text>
+
+      <rect class="box" x="100" y="400" width="230" height="84" rx="6"/>
+      <text class="h" x="114" y="422">page_cache</text>
+      <text class="t" x="114" y="442">url_hash (unique)</text>
+      <text class="t" x="114" y="458">title · cleaned text</text>
+      <rect class="box" x="440" y="400" width="210" height="84" rx="6"/>
+      <text class="h" x="454" y="422">audio_cache</text>
+      <text class="t" x="454" y="442">url_hash + model + voice</text>
+      <text class="t" x="454" y="458">audio_key · seconds</text>
+      <rect class="box" x="760" y="400" width="230" height="100" rx="6"/>
+      <text class="h" x="774" y="422">model_prices</text>
+      <text class="t" x="774" y="442">provider + model (unique)</text>
+      <text class="t" x="774" y="458">prompt · completion</text>
+      <text class="t" x="774" y="474">audio · cache_read</text>
+      <text class="s" x="774" y="492">fetched_on starts the 7-day clock</text>
+
+      <path class="arr" d="M330 72 H440"/>
+      <path class="arr" d="M215 190 V158 H400 V102 H440"/>
+      <path class="arr" d="M545 190 V114"/>
+      <text class="s" x="556" y="158">1 to many</text>
+      <path class="arr" d="M760 240 H650"/>
+      <path class="arr flag" d="M650 270 C 700 270 700 304 650 304"/>
+      <text class="s f" x="662" y="326">parent_id (a reply)</text>
+      <path class="arr dash" d="M330 442 H440"/>
+      <text class="s" x="335" y="434">same link</text>
+      <text class="s" x="20" y="512">Every table also carries id (UUIDv7 text) and created_on / created_by / updated_on / updated_by. The *_by columns are empty until accounts exist.</text>
+    </svg>
+    </div>
+    <figcaption>The caches key by a hash of the link, not by session, so two conversations about one blog share one page text and one audio file.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>SQLite through sqlc, UUID text ids, audit columns</h3>
+      <p class="why">One file, no server, typed queries, and ids that can be merged across machines later. Audit columns are ready for accounts.</p>
+      <p class="cost">The driver needs cgo (a C compiler) to build. Migration 004 rebuilt a table and silently dropped old thread mappings once.</p>
+      <p class="ask">Should real-data migrations be required to convert rows rather than drop tables from now on?</p>
+    </div>
+    <div class="card">
+      <h3>Audio on disk, referenced by key</h3>
+      <p class="why">The database stays small. The blob interface can point at object storage later.</p>
+      <p class="cost">Disk files have no cleanup. Your own voice notes are stored too.</p>
+      <p class="ask">How long should voice notes and old audio be kept?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DEPLOYMENT ============================ -->
+<section id="deploy">
+  <p class="eyebrow">Next step</p>
+  <h2>The design leans on a machine, and Workers is not one</h2>
+  <p class="claim">Each row is something version 0 assumes and what it turns into on Cloudflare. Read the red rows first: they decide whether the Core is rewritten or moved as it is.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 540" role="img" aria-label="Nine assumptions of version 0 against what Cloudflare offers, each marked blocker, rework or easy.">
+      <text class="cap" x="20" y="28">Version 0 assumes</text>
+      <text class="cap" x="400" y="28">On Cloudflare</text>
+      <text class="cap" x="900" y="28">Effort</text>
+
+      <g>
+        <rect class="box" x="20" y="44" width="350" height="44" rx="5"/><text class="t" x="32" y="71">Go program, one long-running process</text>
+        <rect class="box" x="400" y="44" width="480" height="44" rx="5"/><text class="t" x="412" y="71">Workers run JS/TS/WASM. Go needs a rewrite or Containers.</text>
+        <rect class="chip-block" x="900" y="50" width="120" height="32" rx="16"/><text class="chip-t-block" x="960" y="71" text-anchor="middle">DECIDE</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="96" width="350" height="44" rx="5"/><text class="t" x="32" y="123">ffmpeg for mp3, opus, ogg → mp3</text>
+        <rect class="box" x="400" y="96" width="480" height="44" rx="5"/><text class="t" x="412" y="123">A Worker cannot start a program. Containers can.</text>
+        <rect class="chip-block" x="900" y="102" width="120" height="32" rx="16"/><text class="chip-t-block" x="960" y="123" text-anchor="middle">DECIDE</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="148" width="350" height="44" rx="5"/><text class="t" x="32" y="175">SQLite file via cgo, queries via sqlc</text>
+        <rect class="box" x="400" y="148" width="480" height="44" rx="5"/><text class="t" x="412" y="175">D1 or Durable Object SQLite: SQLite, but async.</text>
+        <rect class="chip-work" x="900" y="154" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="175" text-anchor="middle">REWORK</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="200" width="350" height="44" rx="5"/><text class="t" x="32" y="227">Jobs in memory, polled for up to 20 min</text>
+        <rect class="box" x="400" y="200" width="480" height="44" rx="5"/><text class="t" x="412" y="227">Queues + a Durable Object per job; CPU time is capped.</text>
+        <rect class="chip-work" x="900" y="206" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="227" text-anchor="middle">REWORK</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="252" width="350" height="44" rx="5"/><text class="t" x="32" y="279">Telegram long polling from the process</text>
+        <rect class="box" x="400" y="252" width="480" height="44" rx="5"/><text class="t" x="412" y="279">A webhook: Telegram calls the Worker, no loop.</text>
+        <rect class="chip-work" x="900" y="258" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="279" text-anchor="middle">REWORK</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="304" width="350" height="44" rx="5"/><text class="t" x="32" y="331">API on localhost, no login</text>
+        <rect class="box" x="400" y="304" width="480" height="44" rx="5"/><text class="t" x="412" y="331">Public URL: verify Telegram's secret, keep your ID list.</text>
+        <rect class="chip-work" x="900" y="310" width="120" height="32" rx="16"/><text class="chip-t-work" x="960" y="331" text-anchor="middle">REWORK</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="356" width="350" height="44" rx="5"/><text class="t" x="32" y="383">Audio files on disk</text>
+        <rect class="box" x="400" y="356" width="480" height="44" rx="5"/><text class="t" x="412" y="383">R2 object storage behind the same blob interface.</text>
+        <rect class="chip-easy" x="900" y="362" width="120" height="32" rx="16"/><text class="chip-t-easy" x="960" y="383" text-anchor="middle">EASY</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="408" width="350" height="44" rx="5"/><text class="t" x="32" y="435">config.json plus .env</text>
+        <rect class="box" x="400" y="408" width="480" height="44" rx="5"/><text class="t" x="412" y="435">Wrangler variables for settings, secrets for keys.</text>
+        <rect class="chip-easy" x="900" y="414" width="120" height="32" rx="16"/><text class="chip-t-easy" x="960" y="435" text-anchor="middle">EASY</text>
+      </g>
+      <g>
+        <rect class="box" x="20" y="460" width="350" height="44" rx="5"/><text class="t" x="32" y="487">Rotating log files (zap)</text>
+        <rect class="box" x="400" y="460" width="480" height="44" rx="5"/><text class="t" x="412" y="487">Workers logs; structured fields carry over.</text>
+        <rect class="chip-easy" x="900" y="466" width="120" height="32" rx="16"/><text class="chip-t-easy" x="960" y="487" text-anchor="middle">EASY</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>These are from my knowledge of the platform, not checked against today's Cloudflare docs. Confirm the limits and which of Containers, D1 and Durable Objects fit before committing.</figcaption>
+  </figure>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>The first decision is where the Core runs</h3>
+      <p class="why">Everything else follows from it. Keep Go (a container that also has ffmpeg), or rewrite the Core in TypeScript for native Workers.</p>
+      <p class="cost">Keeping Go keeps the tested pipeline but not the free tier. A rewrite is large, and ffmpeg still has no home in a Worker.</p>
+      <p class="ask">Is "near free" the goal, or "runs without my laptop being on"? They point at different answers.</p>
+    </div>
+    <div class="card">
+      <h3>Adapters over HTTP help here</h3>
+      <p class="why">Only the Telegram adapter changes (polling to webhook). The Core's API and the clients are untouched.</p>
+      <p class="cost">The Telegram webhook endpoint becomes public, so it needs the secret-token check the localhost API never needed.</p>
+      <p class="ask">Do you want the Core callable from outside, or only through the Telegram webhook?</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ QUESTIONS ============================ -->
+<section id="questions" class="all">
+  <p class="eyebrow">Where I would push first</p>
+  <h2>The choices most likely to be wrong</h2>
+  <p class="claim">Ordered by how much it would hurt to find out late. Each one is a decision, not a bug; the app works as built.</p>
+
+  <div class="decisions">
+    <div class="card">
+      <h3>1. Jobs live in memory</h3>
+      <p class="why">Simple, and enough for one person.</p>
+      <p class="cost">A restart drops a job that was running; the poller shows nothing. Sessions and costs survive.</p>
+      <p class="ask">Is losing an in-flight 3-minute job on restart acceptable, or must jobs be resumable?</p>
+    </div>
+    <div class="card">
+      <h3>2. No login on the API</h3>
+      <p class="why">It listens on localhost; the allowlist guards Telegram.</p>
+      <p class="cost">Anyone on the machine can use your API key through it. Not acceptable once it is reachable from outside.</p>
+      <p class="ask">What should authenticate a web page or Discord adapter later?</p>
+    </div>
+    <div class="card">
+      <h3>3. OpenRouter is assumed everywhere</h3>
+      <p class="why">One key, many models, one public price list.</p>
+      <p class="cost">Speech endpoint, price list and weekly check are OpenRouter-shaped. A direct Google or OpenAI key needs per-provider adapters.</p>
+      <p class="ask">Will you ever use a direct key? That decides if this is worth generalising now.</p>
+    </div>
+    <div class="card">
+      <h3>4. One model decides voice versus text</h3>
+      <p class="why">Works in any language and phrasing.</p>
+      <p class="cost">It misjudged once. A model change could change the behaviour.</p>
+      <p class="ask">Do you want a simple override, such as a "/text" prefix, in addition?</p>
+    </div>
+    <div class="card">
+      <h3>5. Attachments are silently ignored</h3>
+      <p class="why">Moved to version 1 on purpose.</p>
+      <p class="cost">A document sent to the bot gets no reply, which looks like a crash.</p>
+      <p class="ask">What types matter first: PDF, images, pasted text files?</p>
+    </div>
+    <div class="card">
+      <h3>6. A single upstream model rate-limits</h3>
+      <p class="why">Retries handle short bursts.</p>
+      <p class="cost">A limit longer than about 45 seconds still fails the question. A fallback model would cover it.</p>
+      <p class="ask">Is a pricier fallback model, used only on failure, worth configuring?</p>
+    </div>
+    <div class="card">
+      <h3>7. ffmpeg and a C compiler are hard requirements</h3>
+      <p class="why">Best audio quality for the least code.</p>
+      <p class="cost">Both complicate any hosted deployment.</p>
+      <p class="ask">If hosting forced a choice, would you give up Opus voice notes for a simpler path?</p>
+    </div>
+    <div class="card">
+      <h3>8. One user, one allowlist</h3>
+      <p class="why">Keeps cost and abuse simple.</p>
+      <p class="cost">The audit columns and per-session ledger would need accounts to share this.</p>
+      <p class="ask">Is anyone else ever meant to use it, even one friend?</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Version 0 is phases 0 to 5, now being reviewed. Next come the fixes from this review, then deployment on Cloudflare. Attachments, hardening and the readme are version 1.
+</footer>
+</div>
