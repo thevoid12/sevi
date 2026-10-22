@@ -1,0 +1,205 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 710" width="1100" height="710" role="img" aria-label="Everything in one picture: Telegram and future clients reach adapters, which call the HTTP API through a signed-token door; the Core runs the link-to-audio and question-to-answer flows with a same-blog lock, a summariser and a price book; it uses OpenRouter chat, speech and prices and Jina Reader outside, and SQLite, disk blobs and ffmpeg locally.">
+<title>Sevi: the whole design on one page</title>
+<style>
+  text { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+  .bg { fill: #F3F5F6; }
+  .box { fill: #FFFFFF; stroke: #C7D1D6; stroke-width: 1.2; }
+  .box.core { stroke: #162026; stroke-width: 1.6; }
+  .box.path { stroke: #0A6A87; stroke-width: 1.6; fill: #DCEFF5; }
+  .box.risk { stroke: #B1432A; stroke-width: 1.6; fill: #F8E4DD; }
+  .box.later { stroke-dasharray: 5 4; fill: none; }
+  .h { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #162026; }
+  .s { font-size: 11px; fill: #56646C; }
+  .t { font-size: 11.5px; fill: #162026; }
+  .cap { font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; fill: #56646C; text-transform: uppercase; }
+  .f { fill: #B1432A; }
+  .a { fill: #0A6A87; }
+  .arr { fill: none; stroke: #162026; stroke-width: 1.4; marker-end: url(#ah); }
+  .arr.acc { stroke: #0A6A87; marker-end: url(#ah-acc); }
+  .arr.dash { stroke-dasharray: 5 4; }
+  .rule { stroke: #56646C; stroke-width: 1; stroke-dasharray: 6 5; fill: none; }
+  .mk { fill: #162026; }
+  .mk.acc { fill: #0A6A87; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #0F1417; }
+    .box { fill: #172025; stroke: #2C3A41; }
+    .box.core { stroke: #E5ECEF; }
+    .box.path { stroke: #5CC0DE; fill: #14323D; }
+    .box.risk { stroke: #F19070; fill: #3B2119; }
+    .box.later { fill: none; }
+    .h, .t { fill: #E5ECEF; }
+    .s, .cap { fill: #92A3AC; }
+    .f { fill: #F19070; }
+    .a { fill: #5CC0DE; }
+    .arr { stroke: #E5ECEF; }
+    .arr.acc { stroke: #5CC0DE; }
+    .rule { stroke: #92A3AC; }
+    .mk { fill: #E5ECEF; }
+    .mk.acc { fill: #5CC0DE; }
+  }
+</style>
+<defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="mk" d="M0 1 L9 5 L0 9 z"/></marker>
+  <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="mk acc" d="M0 1 L9 5 L0 9 z"/></marker>
+</defs>
+<rect class="bg" width="1100" height="710"/>
+  <text class="cap" x="20" y="28">You</text>
+  <text class="cap" x="190" y="28">Adapters</text>
+  <text class="cap" x="380" y="28">Door</text>
+  <text class="cap" x="550" y="28">Core</text>
+  <text class="cap" x="880" y="28">Outside services</text>
+
+  <!-- you -->
+  <rect class="box path" x="20" y="70" width="130" height="96" rx="6"/>
+  <text class="h" x="85" y="94" text-anchor="middle">Telegram</text>
+  <text class="s" x="85" y="114" text-anchor="middle">a blog link</text>
+  <text class="s" x="85" y="130" text-anchor="middle">a voice note</text>
+  <text class="s" x="85" y="146" text-anchor="middle">or typed text</text>
+  <rect class="box later" x="20" y="190" width="130" height="48" rx="6"/>
+  <text class="h" x="85" y="212" text-anchor="middle">Discord</text>
+  <text class="s" x="85" y="228" text-anchor="middle">version 1</text>
+  <rect class="box later" x="20" y="262" width="130" height="48" rx="6"/>
+  <text class="h" x="85" y="284" text-anchor="middle">Web page</text>
+  <text class="s" x="85" y="300" text-anchor="middle">version 1</text>
+  <rect class="box later" x="20" y="334" width="130" height="48" rx="6"/>
+  <text class="h" x="85" y="356" text-anchor="middle">Attachments</text>
+  <text class="s" x="85" y="372" text-anchor="middle">version 1</text>
+
+  <!-- adapters -->
+  <rect class="box path" x="190" y="70" width="150" height="96" rx="6"/>
+  <text class="h" x="265" y="94" text-anchor="middle">Telegram adapter</text>
+  <text class="s" x="265" y="114" text-anchor="middle">polls the Bot API</text>
+  <text class="s" x="265" y="130" text-anchor="middle">only your user ID</text>
+  <text class="s" x="265" y="146" text-anchor="middle">edits one status msg</text>
+  <rect class="box later" x="190" y="190" width="150" height="48" rx="6"/>
+  <text class="h" x="265" y="212" text-anchor="middle">Discord adapter</text>
+  <text class="s" x="265" y="228" text-anchor="middle">version 1</text>
+  <rect class="box later" x="190" y="262" width="150" height="48" rx="6"/>
+  <text class="h" x="265" y="284" text-anchor="middle">Web client</text>
+  <text class="s" x="265" y="300" text-anchor="middle">version 1</text>
+  <path class="arr acc" d="M150 118 H190"/>
+  <path class="arr dash" d="M150 214 H190"/>
+  <path class="arr dash" d="M150 286 H190"/>
+
+  <!-- the door -->
+  <path class="rule" d="M360 44 V412"/>
+  <text class="s f" x="360" y="428" text-anchor="middle">only HTTP + a</text>
+  <text class="s f" x="360" y="442" text-anchor="middle">signed token crosses</text>
+  <path class="arr acc" d="M340 118 H380"/>
+  <path class="arr dash" d="M340 214 H380"/>
+  <path class="arr dash" d="M340 286 H380"/>
+  <rect class="box core" x="380" y="70" width="130" height="312" rx="6"/>
+  <text class="h" x="445" y="94" text-anchor="middle">HTTP API</text>
+  <text class="s" x="445" y="110" text-anchor="middle">127.0.0.1 only</text>
+  <rect class="box risk" x="392" y="124" width="106" height="60" rx="4"/>
+  <text class="t f" x="445" y="144" text-anchor="middle">signed token</text>
+  <text class="s f" x="445" y="160" text-anchor="middle">JWT · 5 minutes</text>
+  <text class="s f" x="445" y="174" text-anchor="middle">on every call</text>
+  <text class="s" x="392" y="212">/v1/messages</text>
+  <text class="s" x="392" y="228">/v1/jobs/{id}</text>
+  <text class="s" x="392" y="244">/v1/audio/{id}</text>
+  <text class="s" x="392" y="260">/v1/threads</text>
+  <text class="s" x="392" y="276">/v1/sessions/{id}</text>
+  <text class="s" x="392" y="312">anything else:</text>
+  <text class="s" x="392" y="328">401, nothing said</text>
+  <path class="arr acc" d="M510 118 H550"/>
+
+  <!-- the core -->
+  <rect class="box core" x="550" y="70" width="290" height="422" rx="6"/>
+  <rect class="box" x="562" y="104" width="126" height="56" rx="5"/>
+  <text class="h" x="625" y="124" text-anchor="middle">Jobs</text>
+  <text class="s" x="625" y="140" text-anchor="middle">one each, side by</text>
+  <text class="s" x="625" y="153" text-anchor="middle">side, in memory</text>
+  <rect class="box" x="702" y="104" width="126" height="56" rx="5"/>
+  <text class="h" x="765" y="124" text-anchor="middle">Same-blog lock</text>
+  <text class="s" x="765" y="140" text-anchor="middle">same link twice:</text>
+  <text class="s" x="765" y="153" text-anchor="middle">spoken once</text>
+
+  <rect class="box path" x="562" y="172" width="266" height="74" rx="5"/>
+  <text class="h" x="575" y="191">Link → one audio file</text>
+  <text class="s" x="575" y="208">stored? reuse · read page · estimate</text>
+  <text class="s" x="575" y="222">over $0.20? ask · speak in chunks</text>
+  <text class="s" x="575" y="236">stitch into one MP3</text>
+
+  <rect class="box path" x="562" y="258" width="266" height="92" rx="5"/>
+  <text class="h" x="575" y="277">Question → answer</text>
+  <text class="s" x="575" y="294">whole chat in time order + the blog</text>
+  <text class="s" x="575" y="308">model hears the audio, returns</text>
+  <text class="s" x="575" y="322">transcript · format · answer</text>
+  <text class="s" x="575" y="336">voice → speak → Opus · text → text</text>
+
+  <rect class="box" x="562" y="362" width="126" height="64" rx="5"/>
+  <text class="h" x="625" y="382" text-anchor="middle">Summariser</text>
+  <text class="s" x="625" y="398" text-anchor="middle">over ~25k tokens:</text>
+  <text class="s" x="625" y="411" text-anchor="middle">oldest → summary</text>
+  <rect class="box" x="702" y="362" width="126" height="64" rx="5"/>
+  <text class="h" x="765" y="382" text-anchor="middle">Price book</text>
+  <text class="s" x="765" y="398" text-anchor="middle">tokens × stored</text>
+  <text class="s" x="765" y="411" text-anchor="middle">price · weekly</text>
+
+  <rect class="box" x="562" y="438" width="266" height="44" rx="5"/>
+  <text class="h" x="575" y="457">Ledger and events</text>
+  <text class="s" x="575" y="473">every call costed · events to adapter</text>
+
+  <!-- outside -->
+  <rect class="box" x="880" y="70" width="200" height="64" rx="6"/>
+  <text class="h" x="980" y="92" text-anchor="middle">OpenRouter · chat</text>
+  <text class="s" x="980" y="108" text-anchor="middle">Gemini 3.5 flash-lite</text>
+  <text class="s" x="980" y="122" text-anchor="middle">retry 3 · 6 · 12 · 24 s</text>
+  <rect class="box" x="880" y="146" width="200" height="64" rx="6"/>
+  <text class="h" x="980" y="168" text-anchor="middle">OpenRouter · speech</text>
+  <text class="s" x="980" y="184" text-anchor="middle">Gemini 3.8 flash TTS</text>
+  <text class="s" x="980" y="198" text-anchor="middle">voice Kore</text>
+  <rect class="box" x="880" y="222" width="200" height="52" rx="6"/>
+  <text class="h" x="980" y="244" text-anchor="middle">OpenRouter · prices</text>
+  <text class="s" x="980" y="260" text-anchor="middle">public list, once a week</text>
+  <rect class="box" x="880" y="286" width="200" height="52" rx="6"/>
+  <text class="h" x="980" y="308" text-anchor="middle">Jina Reader</text>
+  <text class="s" x="980" y="324" text-anchor="middle">web page → clean text</text>
+  <rect class="box later" x="880" y="350" width="200" height="48" rx="6"/>
+  <text class="h" x="980" y="372" text-anchor="middle">Fallback model</text>
+  <text class="s" x="980" y="388" text-anchor="middle">version 1</text>
+  <rect class="box later" x="880" y="410" width="200" height="48" rx="6"/>
+  <text class="h" x="980" y="432" text-anchor="middle">ElevenLabs, other voices</text>
+  <text class="s" x="980" y="448" text-anchor="middle">version 2</text>
+  <path class="arr" d="M840 102 H880"/>
+  <path class="arr" d="M840 178 H880"/>
+  <path class="arr" d="M840 248 H880"/>
+  <path class="arr" d="M840 312 H880"/>
+
+  <!-- stores -->
+  <path class="arr" d="M620 492 V516 H530 V540"/>
+  <path class="arr" d="M730 492 V516 H770 V540"/>
+  <path class="arr" d="M810 492 V516 H915 V540"/>
+  <rect class="box" x="380" y="540" width="300" height="100" rx="6"/>
+  <text class="h" x="392" y="562">SQLite · data/sevi.db</text>
+  <text class="s" x="392" y="580">sessions · messages · thread_map</text>
+  <text class="s" x="392" y="596">ledger · pending · model_prices</text>
+  <text class="s" x="392" y="612">page_cache · audio_cache</text>
+  <text class="s" x="392" y="628">(sessions also hold the summary)</text>
+  <rect class="box" x="700" y="540" width="140" height="56" rx="6"/>
+  <text class="h" x="770" y="564" text-anchor="middle">Disk blobs</text>
+  <text class="s" x="770" y="582" text-anchor="middle">audio files</text>
+  <rect class="box" x="860" y="540" width="120" height="56" rx="6"/>
+  <text class="h" x="920" y="564" text-anchor="middle">ffmpeg</text>
+  <text class="s" x="920" y="582" text-anchor="middle">mp3 · opus</text>
+  <rect class="box" x="20" y="540" width="160" height="56" rx="6"/>
+  <text class="h" x="100" y="564" text-anchor="middle">config.json</text>
+  <text class="s" x="100" y="582" text-anchor="middle">models · limits</text>
+  <rect class="box" x="200" y="540" width="160" height="56" rx="6"/>
+  <text class="h" x="280" y="564" text-anchor="middle">.env</text>
+  <text class="s" x="280" y="582" text-anchor="middle">keys · token secret</text>
+  <rect class="box" x="20" y="608" width="340" height="32" rx="6"/>
+  <text class="s" x="32" y="628">logs: sevi.log · error.log</text>
+
+  <!-- legend -->
+  <path class="rule" d="M20 664 H1080"/>
+  <rect class="box path" x="20" y="680" width="22" height="14" rx="3"/>
+  <text class="s" x="50" y="691">a message's path in</text>
+  <rect class="box later" x="200" y="680" width="22" height="14" rx="3"/>
+  <text class="s" x="230" y="691">later versions</text>
+  <rect class="box risk" x="350" y="680" width="22" height="14" rx="3"/>
+  <text class="s" x="380" y="691">the lock on the door</text>
+  <text class="s" x="560" y="691">You send a link or ask a question; one Core decides, costs and remembers it.</text>
+
+</svg>
