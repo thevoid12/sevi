@@ -12,6 +12,7 @@ import (
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/store"
@@ -45,7 +46,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			if p, err := c.Store.GetPage(ctx, hash); err == nil {
 				title = p.Title.String
 			}
-			msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: ca.AudioKey, Format: "voice"})
+			msg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: ca.AudioKey, Format: "voice"})
 			if err != nil {
 				return event.Wrap("Something went wrong on my side.", err)
 			}
@@ -114,7 +115,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	if err := c.Store.PutAudio(ctx, hash, ttsModel, ttsVoice, audioKey, seconds); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
-	msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: audioKey, Format: "voice"})
+	msg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: audioKey, Format: "voice"})
 	if err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
@@ -142,7 +143,7 @@ func (c *Core) recordTTS(ctx context.Context, sessionID string, sp provider.Spee
 	cfg := c.Cfg
 	ttsProvider, ttsModel := cfg.GetString("models.tts.provider"), cfg.GetString("models.tts.model")
 	in, out := pricing.TTSTokens(chars, audio.Duration(sp.PCM), cfg.GetFloat64("models.tts.audio_tokens_per_sec"))
-	e := store.LedgerEntry{
+	e := model.LedgerEntry{
 		SessionID: sessionID, Role: "tts", Provider: ttsProvider, Model: ttsModel,
 		GenerationID: sp.GenerationID, Chars: chars, InputUnits: in, OutputUnits: out,
 	}

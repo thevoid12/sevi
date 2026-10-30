@@ -18,7 +18,7 @@ import (
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
-	"sevi/internal/store"
+	"sevi/internal/store/storetest"
 )
 
 // fakeTTS returns one second of silence per call and can fail on a given call.
@@ -84,11 +84,7 @@ func TestLinksEndToEnd(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			log := zap.NewNop().Sugar()
 			dir := t.TempDir()
-			st, err := store.Open(context.Background(), dir+"/t.db", log)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { st.Close() })
+			st := storetest.Open(t, log)
 
 			cfg := viper.New()
 			cfg.Set("models.tts.provider", "p")

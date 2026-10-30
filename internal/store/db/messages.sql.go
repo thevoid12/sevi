@@ -12,7 +12,7 @@ import (
 
 const createMessage = `-- name: CreateMessage :one
 INSERT INTO messages (id, session_id, role, text, audio_key, parent_id, format)
-VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format
+VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format
 `
 
 type CreateMessageParams struct {
@@ -53,7 +53,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE id = ?
+SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE id = $1
 `
 
 func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
@@ -76,7 +76,7 @@ func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
 }
 
 const listMessagesBySession = `-- name: ListMessagesBySession :many
-SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE session_id = ? ORDER BY created_on, id
+SELECT id, session_id, role, text, audio_key, created_on, created_by, updated_on, updated_by, parent_id, format FROM messages WHERE session_id = $1 ORDER BY created_on, id
 `
 
 func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) ([]Message, error) {
@@ -115,7 +115,7 @@ func (q *Queries) ListMessagesBySession(ctx context.Context, sessionID string) (
 }
 
 const setMessageAudio = `-- name: SetMessageAudio :exec
-UPDATE messages SET audio_key = ? WHERE id = ?
+UPDATE messages SET audio_key = $1 WHERE id = $2
 `
 
 type SetMessageAudioParams struct {
@@ -129,7 +129,7 @@ func (q *Queries) SetMessageAudio(ctx context.Context, arg SetMessageAudioParams
 }
 
 const setMessageText = `-- name: SetMessageText :exec
-UPDATE messages SET text = ? WHERE id = ?
+UPDATE messages SET text = $1 WHERE id = $2
 `
 
 type SetMessageTextParams struct {

@@ -1,0 +1,23 @@
+# Local Postgres for dev. Start: docker compose -f localdb/docker-compose.yml up -d
+# Matches DATABASE_URL in secret_sample.json:
+#   postgres://sevi:sevi@127.0.0.1:5432/sevi?sslmode=disable
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sevi
+      POSTGRES_PASSWORD: sevi
+      POSTGRES_DB: sevi
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - sevi-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sevi -d sevi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  sevi-pgdata:

@@ -9,6 +9,7 @@ import (
 
 	"sevi/internal/auth"
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/reqid"
 )
 
@@ -65,7 +66,7 @@ func (a *API) authenticate(next http.Handler) http.Handler {
 			}
 			logx.With(r.Context(), a.log).Warnw("refused an unauthenticated request", "reason", reason, "remote", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sevi"`)
-			a.writeJSON(w, http.StatusUnauthorized, errorBody{Error: struct {
+			a.writeJSON(w, http.StatusUnauthorized, model.ErrorBody{Error: struct {
 				Message string `json:"message"`
 				Ref     string `json:"ref"`
 			}{"Unauthorized", reqid.From(r.Context())}})

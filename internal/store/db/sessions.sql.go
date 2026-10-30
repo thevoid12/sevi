@@ -11,7 +11,7 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (id, kind, url) VALUES (?, ?, ?) RETURNING id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through
+INSERT INTO sessions (id, kind, url) VALUES ($1, $2, $3) RETURNING id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through
 `
 
 type CreateSessionParams struct {
@@ -38,7 +38,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through FROM sessions WHERE id = ?
+SELECT id, kind, url, created_on, created_by, updated_on, updated_by, summary, summary_through FROM sessions WHERE id = $1
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -59,7 +59,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const setSessionSummary = `-- name: SetSessionSummary :exec
-UPDATE sessions SET summary = ?, summary_through = ? WHERE id = ?
+UPDATE sessions SET summary = $1, summary_through = $2 WHERE id = $3
 `
 
 type SetSessionSummaryParams struct {

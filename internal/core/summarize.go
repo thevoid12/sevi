@@ -6,8 +6,8 @@ import (
 	"unicode/utf8"
 
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/provider"
-	"sevi/internal/store"
 )
 
 const summarizePrompt = `You condense a conversation between a user and an assistant into notes that let the assistant carry on without the full text. Write the notes in two parts.
@@ -53,7 +53,7 @@ func (c *Core) maybeSummarize(ctx context.Context, j *Job, sessionID, newMsgID s
 			}
 		}
 	}
-	var open []store.Message // not yet summarised, without the question being asked now
+	var open []model.Message // not yet summarised, without the question being asked now
 	chars := 0
 	for _, m := range all[start:] {
 		if m.ID == newMsgID {

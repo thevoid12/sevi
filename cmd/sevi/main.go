@@ -88,7 +88,12 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return printToken(cfg, sec, args[1])
 	}
 
-	st, err := store.Open(ctx, filepath.Join(cfg.GetString("app.data_dir"), "sevi.db"), rlog)
+	dbURL, err := secrets.Require(sec, "database.url_env", cfg.GetString("database.url_env"))
+	if err != nil {
+		rlog.Errorw("missing database URL", "err", err)
+		return 1
+	}
+	st, err := store.Open(ctx, dbURL, rlog)
 	if err != nil {
 		rlog.Errorw("open store failed", "err", err)
 		return 1

@@ -19,6 +19,7 @@ import (
 	"sevi/internal/core"
 	"sevi/internal/event"
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
 )
@@ -138,46 +139,6 @@ func (a *API) waitForChange(r *http.Request, job *core.Job, after int, max time.
 	}
 }
 
-// JSON shapes for the API. Explicit structs (not database rows) so the
-// contract is stable, snake_case, and free of SQL null wrappers.
-type sessionView struct {
-	ID        string        `json:"id"`
-	Kind      string        `json:"kind"`
-	URL       string        `json:"url,omitempty"`
-	CreatedOn int64         `json:"created_on"`
-	Messages  []messageView `json:"messages"`
-	Cost      costView      `json:"cost"`
-}
-
-type messageView struct {
-	ID        string `json:"id"`
-	ParentID  string `json:"parent_id,omitempty"`
-	Role      string `json:"role"`
-	Format    string `json:"format,omitempty"` // voice | text
-	Text      string `json:"text,omitempty"`
-	AudioURL  string `json:"audio_url,omitempty"`
-	CreatedOn int64  `json:"created_on"`
-}
-
-type costView struct {
-	TotalUSD     float64      `json:"total_usd"`
-	Calls        int64        `json:"calls"`
-	UnknownCalls int64        `json:"unknown_calls"`
-	Ledger       []ledgerView `json:"ledger,omitempty"`
-}
-
-type ledgerView struct {
-	Role         string   `json:"role"`
-	Provider     string   `json:"provider"`
-	Model        string   `json:"model"`
-	GenerationID string   `json:"generation_id,omitempty"`
-	Chars        int64    `json:"chars"`
-	InputUnits   *int64   `json:"input_units"`
-	OutputUnits  *int64   `json:"output_units"`
-	CostUSD      *float64 `json:"cost_usd"` // null = not priced yet
-	CreatedOn    int64    `json:"created_on"`
-}
-
 func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sess, err := a.store.GetSession(ctx, r.PathValue("id"))
@@ -195,9 +156,9 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 		a.storeFail(w, r, err, "")
 		return
 	}
-	v := sessionView{ID: sess.ID, Kind: sess.Kind, URL: sess.Url.String, CreatedOn: sess.CreatedOn, Messages: []messageView{}, Cost: cv}
+	v := model.SessionView{ID: sess.ID, Kind: sess.Kind, URL: sess.Url.String, CreatedOn: sess.CreatedOn, Messages: []model.MessageView{}, Cost: cv}
 	for _, m := range msgs {
-		mv := messageView{ID: m.ID, ParentID: m.ParentID.String, Role: m.Role, Format: m.Format.String, Text: m.Text.String, CreatedOn: m.CreatedOn}
+		mv := model.MessageView{ID: m.ID, ParentID: m.ParentID.String, Role: m.Role, Format: m.Format.String, Text: m.Text.String, CreatedOn: m.CreatedOn}
 		if m.AudioKey.Valid {
 			mv.AudioURL = "/v1/audio/" + m.ID
 		}
@@ -220,19 +181,19 @@ func (a *API) getSessionCost(w http.ResponseWriter, r *http.Request) {
 	a.writeJSON(w, http.StatusOK, cv)
 }
 
-func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (costView, error) {
+func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (model.CostView, error) {
 	sc, err := a.store.SessionCost(r.Context(), sessionID)
 	if err != nil {
-		return costView{}, err
+		return model.CostView{}, err
 	}
-	cv := costView{TotalUSD: sc.TotalUsd, Calls: sc.Calls, UnknownCalls: sc.UnknownCalls}
+	cv := model.CostView{TotalUSD: sc.TotalUsd, Calls: sc.Calls, UnknownCalls: sc.UnknownCalls}
 	if withLedger {
 		rows, err := a.store.ListLedger(r.Context(), sessionID)
 		if err != nil {
-			return costView{}, err
+			return model.CostView{}, err
 		}
 		for _, l := range rows {
-			lv := ledgerView{Role: l.Role, Provider: l.Provider, Model: l.Model, GenerationID: l.GenerationID.String, Chars: l.Chars, CreatedOn: l.CreatedOn}
+			lv := model.LedgerView{Role: l.Role, Provider: l.Provider, Model: l.Model, GenerationID: l.GenerationID.String, Chars: l.Chars, CreatedOn: l.CreatedOn}
 			if l.InputUnits.Valid {
 				lv.InputUnits = &l.InputUnits.Int64
 			}
@@ -252,11 +213,7 @@ func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (costView
 // handle for a message it sent (e.g. Telegram chat_id:message_id) so that a
 // reply to that message finds its conversation.
 func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
-	var t struct {
-		Adapter   string `json:"adapter"`
-		ThreadRef string `json:"thread_ref"`
-		MessageID string `json:"message_id"`
-	}
+	var t model.ThreadRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&t); err != nil || t.Adapter == "" || t.ThreadRef == "" || t.MessageID == "" {
 		a.fail(w, r, http.StatusBadRequest, event.Wrap("adapter, thread_ref and message_id are required.", err))
 		return
@@ -293,14 +250,7 @@ func (a *API) getAudio(w http.ResponseWriter, r *http.Request) {
 		mime = "audio/ogg"
 	}
 	w.Header().Set("Content-Type", mime)
-	http.ServeContent(w, r, "audio.mp3", time.Unix(msg.CreatedOn, 0), bytes.NewReader(b))
-}
-
-type errorBody struct {
-	Error struct {
-		Message string `json:"message"`
-		Ref     string `json:"ref"`
-	} `json:"error"`
+	http.ServeContent(w, r, "audio.mp3", msg.CreatedOn, bytes.NewReader(b))
 }
 
 // fail logs the full cause and sends only the safe message plus the request id.
@@ -311,7 +261,7 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, err error
 	} else {
 		log.Warnw("request rejected", "status", status, "err", err)
 	}
-	var b errorBody
+	var b model.ErrorBody
 	b.Error.Message = event.SafeMessage(err)
 	b.Error.Ref = reqid.From(r.Context())
 	a.writeJSON(w, status, b)

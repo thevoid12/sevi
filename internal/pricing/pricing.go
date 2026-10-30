@@ -15,6 +15,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"sevi/internal/model"
 	"sevi/internal/provider"
 	"sevi/internal/store"
 )
@@ -75,7 +76,7 @@ func (b *Book) now() time.Time {
 	return time.Now()
 }
 
-func toPrice(r store.ModelPrice) provider.Price {
+func toPrice(r model.ModelPrice) provider.Price {
 	return provider.Price{Prompt: r.Prompt, Completion: r.Completion, Audio: r.Audio, CacheRead: r.CacheRead}
 }
 
@@ -112,7 +113,7 @@ func (b *Book) refresh(ctx context.Context, prov, want string) error {
 				b.Log.Warnw("model price changed", "provider", prov, "model", m, "old", o, "new", np)
 			}
 		}
-		if err := b.Store.PutPrice(ctx, prov, m, store.ModelPrice{Prompt: np.Prompt, Completion: np.Completion, Audio: np.Audio, CacheRead: np.CacheRead, FetchedOn: now}); err != nil {
+		if err := b.Store.PutPrice(ctx, prov, m, model.ModelPrice{Prompt: np.Prompt, Completion: np.Completion, Audio: np.Audio, CacheRead: np.CacheRead, FetchedOn: now}); err != nil {
 			return err
 		}
 		updated = append(updated, m)

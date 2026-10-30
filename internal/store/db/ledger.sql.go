@@ -12,7 +12,7 @@ import (
 
 const insertLedger = `-- name: InsertLedger :one
 INSERT INTO ledger (id, session_id, role, provider, model, generation_id, chars, input_units, output_units, cost_usd)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
 `
 
 type InsertLedgerParams struct {
@@ -47,7 +47,7 @@ func (q *Queries) InsertLedger(ctx context.Context, arg InsertLedgerParams) (str
 }
 
 const listLedgerBySession = `-- name: ListLedgerBySession :many
-SELECT id, session_id, role, provider, model, generation_id, chars, input_units, output_units, cost_usd, created_on, created_by, updated_on, updated_by FROM ledger WHERE session_id = ? ORDER BY created_on, id
+SELECT id, session_id, role, provider, model, generation_id, chars, input_units, output_units, cost_usd, created_on, created_by, updated_on, updated_by FROM ledger WHERE session_id = $1 ORDER BY created_on, id
 `
 
 func (q *Queries) ListLedgerBySession(ctx context.Context, sessionID string) ([]Ledger, error) {
@@ -90,10 +90,10 @@ func (q *Queries) ListLedgerBySession(ctx context.Context, sessionID string) ([]
 
 const sessionCost = `-- name: SessionCost :one
 SELECT
-    CAST(COALESCE(SUM(cost_usd), 0) AS REAL)             AS total_usd,
-    CAST(COUNT(*) AS INTEGER)                            AS calls,
-    CAST(COUNT(*) - COUNT(cost_usd) AS INTEGER)          AS unknown_calls
-FROM ledger WHERE session_id = ?
+    COALESCE(SUM(cost_usd), 0)::float8                  AS total_usd,
+    COUNT(*)::bigint                                     AS calls,
+    (COUNT(*) - COUNT(cost_usd))::bigint                 AS unknown_calls
+FROM ledger WHERE session_id = $1
 `
 
 type SessionCostRow struct {
@@ -110,7 +110,7 @@ func (q *Queries) SessionCost(ctx context.Context, sessionID string) (SessionCos
 }
 
 const setLedgerUsage = `-- name: SetLedgerUsage :exec
-UPDATE ledger SET input_units = ?, output_units = ?, cost_usd = ? WHERE id = ?
+UPDATE ledger SET input_units = $1, output_units = $2, cost_usd = $3 WHERE id = $4
 `
 
 type SetLedgerUsageParams struct {

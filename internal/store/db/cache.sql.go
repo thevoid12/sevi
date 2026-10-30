@@ -11,7 +11,7 @@ import (
 )
 
 const getAudio = `-- name: GetAudio :one
-SELECT id, url_hash, tts_model, voice, audio_key, seconds, created_on, created_by, updated_on, updated_by FROM audio_cache WHERE url_hash = ? AND tts_model = ? AND voice = ?
+SELECT id, url_hash, tts_model, voice, audio_key, seconds, created_on, created_by, updated_on, updated_by FROM audio_cache WHERE url_hash = $1 AND tts_model = $2 AND voice = $3 ORDER BY created_on DESC, id DESC LIMIT 1
 `
 
 type GetAudioParams struct {
@@ -39,7 +39,7 @@ func (q *Queries) GetAudio(ctx context.Context, arg GetAudioParams) (AudioCache,
 }
 
 const getPage = `-- name: GetPage :one
-SELECT id, url_hash, url, text, created_on, created_by, updated_on, updated_by, title FROM page_cache WHERE url_hash = ?
+SELECT id, url_hash, url, text, created_on, created_by, updated_on, updated_by, title FROM page_cache WHERE url_hash = $1 ORDER BY created_on DESC, id DESC LIMIT 1
 `
 
 func (q *Queries) GetPage(ctx context.Context, urlHash string) (PageCache, error) {
@@ -60,9 +60,12 @@ func (q *Queries) GetPage(ctx context.Context, urlHash string) (PageCache, error
 }
 
 const putAudio = `-- name: PutAudio :exec
-INSERT INTO audio_cache (id, url_hash, tts_model, voice, audio_key, seconds) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (url_hash, tts_model, voice)
-DO UPDATE SET audio_key = excluded.audio_key, seconds = excluded.seconds
+WITH upd AS (
+    UPDATE audio_cache SET audio_key = $5, seconds = $6
+    WHERE url_hash = $2 AND tts_model = $3 AND voice = $4 RETURNING id
+)
+INSERT INTO audio_cache (id, url_hash, tts_model, voice, audio_key, seconds)
+SELECT $1, $2, $3, $4, $5, $6 WHERE NOT EXISTS (SELECT 1 FROM upd)
 `
 
 type PutAudioParams struct {
@@ -87,8 +90,11 @@ func (q *Queries) PutAudio(ctx context.Context, arg PutAudioParams) error {
 }
 
 const putPage = `-- name: PutPage :exec
-INSERT INTO page_cache (id, url_hash, url, title, text) VALUES (?, ?, ?, ?, ?)
-ON CONFLICT (url_hash) DO UPDATE SET text = excluded.text, title = excluded.title
+WITH upd AS (
+    UPDATE page_cache SET text = $5, title = $4 WHERE url_hash = $2 RETURNING id
+)
+INSERT INTO page_cache (id, url_hash, url, title, text)
+SELECT $1, $2, $3, $4, $5 WHERE NOT EXISTS (SELECT 1 FROM upd)
 `
 
 type PutPageParams struct {

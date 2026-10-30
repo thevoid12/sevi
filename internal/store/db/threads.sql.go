@@ -11,7 +11,8 @@ import (
 
 const getThreadMessage = `-- name: GetThreadMessage :one
 SELECT m.id, m.session_id, m.role, m.text, m.audio_key, m.created_on, m.created_by, m.updated_on, m.updated_by, m.parent_id, m.format FROM thread_map t JOIN messages m ON m.id = t.message_id
-WHERE t.adapter = ? AND t.thread_ref = ?
+WHERE t.adapter = $1 AND t.thread_ref = $2
+ORDER BY t.created_on DESC, t.id DESC LIMIT 1
 `
 
 type GetThreadMessageParams struct {
@@ -39,8 +40,11 @@ func (q *Queries) GetThreadMessage(ctx context.Context, arg GetThreadMessagePara
 }
 
 const putThread = `-- name: PutThread :exec
-INSERT INTO thread_map (id, adapter, thread_ref, message_id) VALUES (?, ?, ?, ?)
-ON CONFLICT (adapter, thread_ref) DO UPDATE SET message_id = excluded.message_id
+WITH upd AS (
+    UPDATE thread_map SET message_id = $4 WHERE adapter = $2 AND thread_ref = $3 RETURNING id
+)
+INSERT INTO thread_map (id, adapter, thread_ref, message_id)
+SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM upd)
 `
 
 type PutThreadParams struct {

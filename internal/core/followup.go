@@ -13,6 +13,7 @@ import (
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/store"
@@ -70,7 +71,7 @@ func (c *Core) handleTurn(ctx, jobCtx context.Context, m Message, text string, v
 	if voice != nil {
 		format = "voice"
 	}
-	userMsg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "user", Text: text, ParentID: parentID, Format: format})
+	userMsg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "user", Text: text, ParentID: parentID, Format: format})
 	if err != nil {
 		return nil, internal(err)
 	}
@@ -134,7 +135,7 @@ var replySchema = map[string]any{
 // turnJob answers one question: build the conversation context, ask the model
 // (which also hears the audio and returns its transcript), then deliver the
 // answer as speech or text as decided.
-func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg store.Message, typed string, voiceIn []byte) error {
+func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg model.Message, typed string, voiceIn []byte) error {
 	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
 	cfg := c.Cfg
 	var turnCost float64
@@ -222,7 +223,7 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 		"prompt_tokens", res.Usage.PromptTokens, "audio_tokens", res.Usage.AudioTokens, "completion_tokens", res.Usage.CompletionTokens)
 
 	if r.Format == "text" {
-		msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", Text: r.Answer, ParentID: userMsg.ID, Format: "text"})
+		msg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", Text: r.Answer, ParentID: userMsg.ID, Format: "text"})
 		if err != nil {
 			return event.Wrap("Something went wrong on my side.", err)
 		}
@@ -255,7 +256,7 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 	if err := c.Blob.Put(ctx, key, ogg); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
-	msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", Text: r.Answer, AudioKey: key, ParentID: userMsg.ID, Format: "voice"})
+	msg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", Text: r.Answer, AudioKey: key, ParentID: userMsg.ID, Format: "voice"})
 	if err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
@@ -281,14 +282,14 @@ func (c *Core) finishTurn(j *Job, cost float64, out Part) {
 // recordLLM writes the ledger row for a chat call, with its cost computed from
 // the tokens the provider reported times the stored price (0 and a NULL cost if
 // the price is unknown).
-func (c *Core) recordLLM(ctx context.Context, sessionID, role, prov, model string, res provider.ChatResult, chars int) (float64, error) {
-	e := store.LedgerEntry{
-		SessionID: sessionID, Role: role, Provider: prov, Model: model, GenerationID: res.GenerationID,
+func (c *Core) recordLLM(ctx context.Context, sessionID, role, prov, modelName string, res provider.ChatResult, chars int) (float64, error) {
+	e := model.LedgerEntry{
+		SessionID: sessionID, Role: role, Provider: prov, Model: modelName, GenerationID: res.GenerationID,
 		Chars: chars, InputUnits: res.Usage.PromptTokens, OutputUnits: res.Usage.CompletionTokens,
 	}
 	var cost float64
-	if p, err := c.Prices.Get(ctx, prov, model); err != nil {
-		logx.With(ctx, c.Log).Errorw("no price for the model, cost left unknown", "model", model, "err", err)
+	if p, err := c.Prices.Get(ctx, prov, modelName); err != nil {
+		logx.With(ctx, c.Log).Errorw("no price for the model, cost left unknown", "model", modelName, "err", err)
 	} else {
 		cost = pricing.LLMCost(p, res.Usage)
 		e.CostUSD = &cost
@@ -313,7 +314,7 @@ The conversation so far is given with the time each message was sent. Messages b
 // buildContext renders what the model needs to know: the blog (for a blog
 // session), the whole conversation so far in time order with timestamps, which
 // earlier message the user is replying to, and the new message itself.
-func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg store.Message, transcript string, hasAudio bool) (string, error) {
+func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg model.Message, transcript string, hasAudio bool) (string, error) {
 	sess, err := c.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return "", err
@@ -358,7 +359,7 @@ func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg store
 		fmt.Fprintf(&b, "Summary of the earlier conversation (everything up to %s):\n%s\n\n", stamp(msgs[max(start-1, 0)].CreatedOn), sess.Summary.String)
 	}
 
-	var parent *store.Message
+	var parent *model.Message
 	for i := range msgs {
 		if userMsg.ParentID.Valid && msgs[i].ID == userMsg.ParentID.String {
 			parent = &msgs[i]
@@ -398,7 +399,7 @@ func (c *Core) buildContext(ctx context.Context, sessionID string, userMsg store
 }
 
 // renderMessage is one line of the timeline: "[time] Who: what was said".
-func renderMessage(m store.Message) string {
+func renderMessage(m model.Message) string {
 	who, what := "User", strings.TrimSpace(m.Text.String)
 	if m.Role == "assistant" {
 		who = "Assistant"
@@ -412,7 +413,7 @@ func renderMessage(m store.Message) string {
 	return fmt.Sprintf("[%s] %s: %s", stamp(m.CreatedOn), who, what)
 }
 
-func stamp(unix int64) string { return time.Unix(unix, 0).UTC().Format("2006-01-02 15:04 UTC") }
+func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
 
 // llmMessage maps a chat-model failure to text that is safe to show.
 func llmMessage(err error) string {

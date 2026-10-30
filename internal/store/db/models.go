@@ -6,6 +6,7 @@ package db
 
 import (
 	"database/sql"
+	"time"
 )
 
 type AudioCache struct {
@@ -15,9 +16,9 @@ type AudioCache struct {
 	Voice     string
 	AudioKey  string
 	Seconds   int64
-	CreatedOn int64
+	CreatedOn time.Time
 	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
+	UpdatedOn sql.NullTime
 	UpdatedBy sql.NullString
 }
 
@@ -32,9 +33,9 @@ type Ledger struct {
 	InputUnits   sql.NullInt64
 	OutputUnits  sql.NullInt64
 	CostUsd      sql.NullFloat64
-	CreatedOn    int64
+	CreatedOn    time.Time
 	CreatedBy    sql.NullString
-	UpdatedOn    sql.NullInt64
+	UpdatedOn    sql.NullTime
 	UpdatedBy    sql.NullString
 }
 
@@ -44,9 +45,9 @@ type Message struct {
 	Role      string
 	Text      sql.NullString
 	AudioKey  sql.NullString
-	CreatedOn int64
+	CreatedOn time.Time
 	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
+	UpdatedOn sql.NullTime
 	UpdatedBy sql.NullString
 	ParentID  sql.NullString
 	Format    sql.NullString
@@ -60,9 +61,9 @@ type ModelPrice struct {
 	CompletionUsd float64
 	AudioUsd      float64
 	FetchedOn     int64
-	CreatedOn     int64
+	CreatedOn     time.Time
 	CreatedBy     sql.NullString
-	UpdatedOn     sql.NullInt64
+	UpdatedOn     sql.NullTime
 	UpdatedBy     sql.NullString
 	CacheReadUsd  float64
 }
@@ -72,9 +73,9 @@ type PageCache struct {
 	UrlHash   string
 	Url       string
 	Text      string
-	CreatedOn int64
+	CreatedOn time.Time
 	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
+	UpdatedOn sql.NullTime
 	UpdatedBy sql.NullString
 	Title     sql.NullString
 }
@@ -85,9 +86,9 @@ type Pending struct {
 	Kind      string
 	Payload   string
 	Status    string
-	CreatedOn int64
+	CreatedOn time.Time
 	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
+	UpdatedOn sql.NullTime
 	UpdatedBy sql.NullString
 }
 
@@ -95,9 +96,9 @@ type Session struct {
 	ID             string
 	Kind           string
 	Url            sql.NullString
-	CreatedOn      int64
+	CreatedOn      time.Time
 	CreatedBy      sql.NullString
-	UpdatedOn      sql.NullInt64
+	UpdatedOn      sql.NullTime
 	UpdatedBy      sql.NullString
 	Summary        sql.NullString
 	SummaryThrough sql.NullString
@@ -108,8 +109,8 @@ type ThreadMap struct {
 	Adapter   string
 	ThreadRef string
 	MessageID string
-	CreatedOn int64
+	CreatedOn time.Time
 	CreatedBy sql.NullString
-	UpdatedOn sql.NullInt64
+	UpdatedOn sql.NullTime
 	UpdatedBy sql.NullString
 }

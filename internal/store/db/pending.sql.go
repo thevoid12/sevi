@@ -10,7 +10,7 @@ import (
 )
 
 const createPending = `-- name: CreatePending :one
-INSERT INTO pending (id, session_id, kind, payload) VALUES (?, ?, ?, ?) RETURNING id, session_id, kind, payload, status, created_on, created_by, updated_on, updated_by
+INSERT INTO pending (id, session_id, kind, payload) VALUES ($1, $2, $3, $4) RETURNING id, session_id, kind, payload, status, created_on, created_by, updated_on, updated_by
 `
 
 type CreatePendingParams struct {
@@ -43,7 +43,7 @@ func (q *Queries) CreatePending(ctx context.Context, arg CreatePendingParams) (P
 }
 
 const getOpenPending = `-- name: GetOpenPending :one
-SELECT id, session_id, kind, payload, status, created_on, created_by, updated_on, updated_by FROM pending WHERE session_id = ? AND status = 'pending' ORDER BY created_on DESC, id DESC LIMIT 1
+SELECT id, session_id, kind, payload, status, created_on, created_by, updated_on, updated_by FROM pending WHERE session_id = $1 AND status = 'pending' ORDER BY created_on DESC, id DESC LIMIT 1
 `
 
 func (q *Queries) GetOpenPending(ctx context.Context, sessionID string) (Pending, error) {
@@ -64,7 +64,7 @@ func (q *Queries) GetOpenPending(ctx context.Context, sessionID string) (Pending
 }
 
 const setPendingStatus = `-- name: SetPendingStatus :exec
-UPDATE pending SET status = ? WHERE id = ?
+UPDATE pending SET status = $1 WHERE id = $2
 `
 
 type SetPendingStatusParams struct {

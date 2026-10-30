@@ -11,17 +11,15 @@ CREATE TABLE thread_map (
     adapter    TEXT NOT NULL,
     thread_ref TEXT NOT NULL,
     message_id TEXT NOT NULL REFERENCES messages(id),
-    created_on INTEGER NOT NULL DEFAULT (unixepoch()),
+    created_on TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_by TEXT,
-    updated_on INTEGER,
-    updated_by TEXT,
-    UNIQUE (adapter, thread_ref)
+    updated_on TIMESTAMPTZ,
+    updated_by TEXT
 );
-CREATE TRIGGER thread_map_set_updated_on AFTER UPDATE ON thread_map
-FOR EACH ROW WHEN NEW.updated_on IS OLD.updated_on
-BEGIN
-    UPDATE thread_map SET updated_on = unixepoch() WHERE id = NEW.id;
-END;
+CREATE INDEX thread_map_ref ON thread_map(adapter, thread_ref);
+CREATE TRIGGER thread_map_set_updated_on BEFORE UPDATE ON thread_map
+FOR EACH ROW WHEN (NEW.updated_on IS NOT DISTINCT FROM OLD.updated_on)
+EXECUTE FUNCTION set_updated_on();
 
 -- Model prices, USD per token, as last fetched from the provider. Costs are
 -- computed as tokens x price instead of asking the provider after every call.
@@ -31,18 +29,16 @@ CREATE TABLE model_prices (
     id             TEXT PRIMARY KEY,
     provider       TEXT NOT NULL,
     model          TEXT NOT NULL,
-    prompt_usd     REAL NOT NULL,
-    completion_usd REAL NOT NULL,
-    audio_usd      REAL NOT NULL DEFAULT 0, -- audio input; 0 = same as prompt
-    fetched_on     INTEGER NOT NULL,
-    created_on     INTEGER NOT NULL DEFAULT (unixepoch()),
+    prompt_usd     DOUBLE PRECISION NOT NULL,
+    completion_usd DOUBLE PRECISION NOT NULL,
+    audio_usd      DOUBLE PRECISION NOT NULL DEFAULT 0, -- audio input; 0 = same as prompt
+    fetched_on     BIGINT NOT NULL,
+    created_on     TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_by     TEXT,
-    updated_on     INTEGER,
-    updated_by     TEXT,
-    UNIQUE (provider, model)
+    updated_on     TIMESTAMPTZ,
+    updated_by     TEXT
 );
-CREATE TRIGGER model_prices_set_updated_on AFTER UPDATE ON model_prices
-FOR EACH ROW WHEN NEW.updated_on IS OLD.updated_on
-BEGIN
-    UPDATE model_prices SET updated_on = unixepoch() WHERE id = NEW.id;
-END;
+CREATE INDEX model_prices_key ON model_prices(provider, model);
+CREATE TRIGGER model_prices_set_updated_on BEFORE UPDATE ON model_prices
+FOR EACH ROW WHEN (NEW.updated_on IS NOT DISTINCT FROM OLD.updated_on)
+EXECUTE FUNCTION set_updated_on();

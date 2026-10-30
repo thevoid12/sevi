@@ -6,6 +6,9 @@
     "output_dir": "output",
     "retries": 4
   },
+  "database": {
+    "url_env": "DATABASE_URL"
+  },
   "api": {
     "secret_env": "SEVI_JWT_SECRET",
     "adapters": [

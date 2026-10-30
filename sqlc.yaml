@@ -1,9 +1,10 @@
 version: "2"
 sql:
-  - engine: sqlite
+  - engine: postgresql
     schema: internal/store/sql/migrations
     queries: internal/store/sql/queries
     gen:
       go:
         package: db
         out: internal/store/db
+        sql_package: database/sql
