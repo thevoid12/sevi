@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"sevi/internal/blob"
@@ -20,8 +21,8 @@ import (
 // runTTS is the CLI front end to Core: `sevi tts <url>` submits the link, prints
 // progress, copies the audio to output/<slug>.mp3 and writes a cost report.
 // A long blog asks for confirmation on stdin, like an adapter would.
-func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, st *store.Store, bl blob.Store, pageURL string) error {
-	c, err := newCore(cfg, st, bl, log)
+func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, st *store.Store, bl blob.Store, pageURL string) error {
+	c, err := newCore(cfg, sec, st, bl, log)
 	if err != nil {
 		return err
 	}
@@ -67,10 +68,10 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, st 
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(cfg.App.OutputDir, 0o755); err != nil {
+		if err := os.MkdirAll(cfg.GetString("app.output_dir"), 0o755); err != nil {
 			return err
 		}
-		out := filepath.Join(cfg.App.OutputDir, fetch.Slug(pageURL)+".mp3")
+		out := filepath.Join(cfg.GetString("app.output_dir"), fetch.Slug(pageURL)+".mp3")
 		if err := os.WriteFile(out, mp3, 0o644); err != nil {
 			return err
 		}
@@ -134,7 +135,7 @@ func writeCostReport(ctx context.Context, st *store.Store, cfg *config.Config, s
 	if sc.UnknownCalls > 0 {
 		note = fmt.Sprintf(" (%d call(s) with unknown cost)", sc.UnknownCalls)
 	}
-	path := filepath.Join(cfg.App.OutputDir, fetch.Slug(src)+".cost.md")
+	path := filepath.Join(cfg.GetString("app.output_dir"), fetch.Slug(src)+".cost.md")
 	md := fmt.Sprintf(`# Cost: %s
 
 - Source: %s
@@ -147,7 +148,7 @@ func writeCostReport(ctx context.Context, st *store.Store, cfg *config.Config, s
 
 | # | generation id | in tokens | out tokens | cost |
 |---|---|---|---|---|
-%s`, filepath.Base(path), src, sessionID, cfg.Models.TTS.Model, cfg.Models.TTS.Provider, len(rows), in, out, sc.TotalUsd, note, tbl)
+%s`, filepath.Base(path), src, sessionID, cfg.GetString("models.tts.model"), cfg.GetString("models.tts.provider"), len(rows), in, out, sc.TotalUsd, note, tbl)
 	if err := os.WriteFile(path, []byte(md), 0o644); err != nil {
 		return err
 	}

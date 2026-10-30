@@ -10,30 +10,30 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"sevi/internal/config"
 	"sevi/internal/reqid"
 )
 
 // New returns the logger and a flush function to defer from main.
-func New(c config.Log) (*zap.SugaredLogger, func(), error) {
-	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
-		return nil, nil, fmt.Errorf("create log dir %s: %w", c.Dir, err)
+func New(c *viper.Viper) (*zap.SugaredLogger, func(), error) {
+	if err := os.MkdirAll(c.GetString("log.dir"), 0o755); err != nil {
+		return nil, nil, fmt.Errorf("create log dir %s: %w", c.GetString("log.dir"), err)
 	}
 	var lvl zapcore.Level
-	if err := lvl.UnmarshalText([]byte(strings.ToLower(c.Level))); err != nil {
-		return nil, nil, fmt.Errorf("log level %q: %w", c.Level, err)
+	if err := lvl.UnmarshalText([]byte(strings.ToLower(c.GetString("log.level")))); err != nil {
+		return nil, nil, fmt.Errorf("log level %q: %w", c.GetString("log.level"), err)
 	}
 
 	rotator := func(name string) zapcore.WriteSyncer {
 		return zapcore.AddSync(&lumberjack.Logger{
-			Filename:   filepath.Join(c.Dir, name),
-			MaxSize:    c.MaxSizeMB,
-			MaxBackups: c.MaxBackups,
-			MaxAge:     c.MaxAgeDays,
+			Filename:   filepath.Join(c.GetString("log.dir"), name),
+			MaxSize:    c.GetInt("log.max_size_mb"),
+			MaxBackups: c.GetInt("log.max_backups"),
+			MaxAge:     c.GetInt("log.max_age_days"),
 			Compress:   true,
 		})
 	}

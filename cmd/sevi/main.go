@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"sevi/internal/adapter/telegram"
@@ -28,6 +29,7 @@ import (
 	"sevi/internal/config"
 	"sevi/internal/logx"
 	"sevi/internal/reqid"
+	"sevi/internal/secrets"
 	"sevi/internal/store"
 )
 
@@ -44,7 +46,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		return 1
 	}
-	log, flush, err := logx.New(cfg.Log)
+	log, flush, err := logx.New(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "logger error:", err)
 		return 1
@@ -64,78 +66,79 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 0
 	}
 
-	if _, err := cfg.ProviderKey(cfg.Models.TTS.Provider); err != nil {
+	backend, sec, err := secrets.Open(ctx, cfgPath)
+	if err != nil {
+		rlog.Errorw("load secrets failed", "err", err)
+		return 1
+	}
+	rlog.Infow("secrets loaded", "backend", backend.Kind())
+	if _, err := providerKey(cfg, sec, cfg.GetString("models.tts.provider")); err != nil {
 		rlog.Errorw("missing API key", "err", err)
 		return 1
 	}
-	if cfg.Telegram.Enabled {
-		if _, err := config.RequireKey("telegram.bot_token_env", cfg.Telegram.BotTokenEnv); err != nil {
+	if cfg.GetBool("telegram.enabled") {
+		if _, err := secrets.Require(sec, "telegram.bot_token_env", cfg.GetString("telegram.bot_token_env")); err != nil {
 			rlog.Errorw("missing Telegram token", "err", err)
 			return 1
-		}
-	}
-	for field, ok := range cfg.KeyStatus() {
-		if !ok {
-			rlog.Warnw("API key not set", "field", field)
 		}
 	}
 
 	// `sevi token <adapter>` prints a short-lived API token, for trying the API with curl.
 	if len(args) == 2 && args[0] == "token" {
-		return printToken(cfg, args[1])
+		return printToken(cfg, sec, args[1])
 	}
 
-	st, err := store.Open(ctx, filepath.Join(cfg.App.DataDir, "sevi.db"), rlog)
+	st, err := store.Open(ctx, filepath.Join(cfg.GetString("app.data_dir"), "sevi.db"), rlog)
 	if err != nil {
 		rlog.Errorw("open store failed", "err", err)
 		return 1
 	}
 	defer st.Close()
-	bl := blob.Disk{Root: filepath.Join(cfg.App.DataDir, "blobs")}
+	bl := blob.Disk{Root: filepath.Join(cfg.GetString("app.data_dir"), "blobs")}
 
 	if len(args) > 0 {
 		if args[0] != "tts" || len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter>]  (no command: run the server)")
 			return 2
 		}
-		if err := runTTS(ctx, log, cfg, st, bl, args[1]); err != nil {
+		if err := runTTS(ctx, log, cfg, sec, st, bl, args[1]); err != nil {
 			rlog.Errorw("tts failed", "url", args[1], "err", err)
 			fmt.Fprintln(os.Stderr, "error:", err)
 			return 1
 		}
 		return 0
 	}
-	return serve(ctx, log, cfg, cfgPath, st, bl)
+	return serve(ctx, log, cfg, sec, cfgPath, st, bl)
 }
 
 // serve runs the HTTP API (and the Telegram adapter, if enabled) until
 // interrupted, then drains running jobs.
-func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgPath string, st *store.Store, bl blob.Store) int {
+func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, cfgPath string, st *store.Store, bl blob.Store) int {
 	// Nobody but the configured adapters may call the API: no secrets, no start.
-	secret, err := cfg.APISecret()
+	secret, err := secrets.Require(sec, "api.secret_env", cfg.GetString("api.secret_env"))
 	if err != nil {
 		log.Errorw("the API secret is not set up", "err", err, "hint", "make one with: openssl rand -hex 32")
 		return 1
 	}
-	verifier, err := auth.NewVerifier(secret, cfg.API.Adapters)
+	verifier, err := auth.NewVerifier([]byte(secret), cfg.GetStringSlice("api.adapters"))
 	if err != nil {
 		log.Errorw("API secrets are not usable", "err", err)
 		return 1
 	}
-	if !auth.IsLoopback(cfg.App.Listen) && !cfg.API.AllowRemoteListen {
-		log.Errorw("app.listen is reachable from other machines; refusing to start", "listen", cfg.App.Listen,
+	if !auth.IsLoopback(cfg.GetString("app.listen")) && !cfg.GetBool("api.allow_remote_listen") {
+		log.Errorw("app.listen is reachable from other machines; refusing to start", "listen", cfg.GetString("app.listen"),
 			"hint", "use 127.0.0.1, or set api.allow_remote_listen if that is really intended")
 		return 1
 	}
-	c, err := newCore(cfg, st, bl, log)
+	c, err := newCore(cfg, sec, st, bl, log)
 	if err != nil {
 		log.Errorw("could not start core", "err", err)
 		return 1
 	}
 	// Listen first so the adapter's first call to the API cannot race the server.
-	ln, err := net.Listen("tcp", cfg.App.Listen)
+	ln, err := net.Listen("tcp", cfg.GetString("app.listen"))
 	if err != nil {
-		log.Errorw("could not listen", "addr", cfg.App.Listen, "err", err)
+		log.Errorw("could not listen", "addr", cfg.GetString("app.listen"), "err", err)
 		c.Close()
 		return 1
 	}
@@ -145,27 +148,27 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, cfgP
 	}
 	log.Infow("sevi started",
 		"config", cfgPath,
-		"listen", cfg.App.Listen,
-		"tts_model", cfg.Models.TTS.Model,
-		"llm_model", cfg.Models.LLM.Model,
-		"stt_separate", cfg.Models.STT != nil,
-		"telegram", cfg.Telegram.Enabled,
-		"log_dir", cfg.Log.Dir,
+		"listen", cfg.GetString("app.listen"),
+		"tts_model", cfg.GetString("models.tts.model"),
+		"llm_model", cfg.GetString("models.llm.model"),
+		"stt_separate", cfg.IsSet("models.stt.provider"),
+		"telegram", cfg.GetBool("telegram.enabled"),
+		"log_dir", cfg.GetString("log.dir"),
 	)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 
 	var tgDone chan struct{}
-	if cfg.Telegram.Enabled {
-		token, _ := config.RequireKey("telegram.bot_token_env", cfg.Telegram.BotTokenEnv) // checked at startup
+	if cfg.GetBool("telegram.enabled") {
+		token, _ := secrets.Require(sec, "telegram.bot_token_env", cfg.GetString("telegram.bot_token_env")) // checked at startup
 		bot := telegram.New(telegram.Options{
 			Token:      token,
-			AllowedIDs: cfg.Telegram.AllowedUserIDs,
+			AllowedIDs: config.AllowedUserIDs(cfg),
 			CoreURL:    coreURL(ln.Addr()),
-			Secret:     secret,
-			TokenTTL:   cfg.TokenTTL(),
-			ShowCost:   cfg.Cost.ShowInReply,
+			Secret:     []byte(secret),
+			TokenTTL:   config.TokenTTL(cfg),
+			ShowCost:   cfg.GetBool("cost.show_in_reply"),
 		}, log)
 		tgDone = make(chan struct{})
 		go func() { defer close(tgDone); bot.Run(ctx) }()
@@ -206,17 +209,17 @@ func coreURL(addr net.Addr) string {
 // printToken mints a token for one adapter so the API can be tried with curl:
 //
 //	curl -H "Authorization: Bearer $(sevi token telegram)" localhost:8787/v1/...
-func printToken(cfg *config.Config, adapter string) int {
-	if !slices.Contains(cfg.API.Adapters, adapter) {
+func printToken(cfg *config.Config, sec *viper.Viper, adapter string) int {
+	if !slices.Contains(cfg.GetStringSlice("api.adapters"), adapter) {
 		fmt.Fprintf(os.Stderr, "no adapter %q in api.adapters\n", adapter)
 		return 2
 	}
-	secret, err := cfg.APISecret()
+	secret, err := secrets.Require(sec, "api.secret_env", cfg.GetString("api.secret_env"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	tok, err := auth.Mint(secret, adapter, cfg.TokenTTL())
+	tok, err := auth.Mint([]byte(secret), adapter, config.TokenTTL(cfg))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1

@@ -23,12 +23,13 @@ import (
 // as it is made, so the cost is known the moment the audio is.
 func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, confirmed bool) error {
 	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
-	tts := c.Cfg.Models.TTS
+	cfg := c.Cfg
+	ttsModel, ttsVoice := cfg.GetString("models.tts.model"), cfg.GetString("models.tts.voice")
 	hash := store.URLHash(pageURL)
 
 	// If the same blog is already being spoken, wait for it and reuse its audio
 	// instead of paying for it twice.
-	release, err := c.blogLocks.acquire(ctx, audioKeyFor(hash, tts.Model, tts.Voice), func() {
+	release, err := c.blogLocks.acquire(ctx, audioKeyFor(hash, ttsModel, ttsVoice), func() {
 		log.Infow("same blog is already being made, waiting for it", "url", pageURL)
 		j.progress("That one is already being made. Waiting for it…", 0, 0)
 	})
@@ -38,7 +39,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	defer release()
 
 	// A re-shared link with the same voice settings costs nothing.
-	if ca, err := c.Store.GetAudio(ctx, hash, tts.Model, tts.Voice); err == nil {
+	if ca, err := c.Store.GetAudio(ctx, hash, ttsModel, ttsVoice); err == nil {
 		if _, err := c.Blob.Get(ctx, ca.AudioKey); err == nil {
 			title := ""
 			if p, err := c.Store.GetPage(ctx, hash); err == nil {
@@ -66,13 +67,13 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	if err != nil {
 		return err
 	}
-	chunks := fetch.Chunk(text, tts.ChunkChars)
+	chunks := fetch.Chunk(text, cfg.GetInt("models.tts.chunk_chars"))
 	log.Infow("extracted", "url", pageURL, "chars", len([]rune(text)), "script", fetch.DetectScript(text), "chunks", len(chunks))
 
 	if !confirmed {
 		est := c.estimate(ctx, len([]rune(text)))
-		log.Infow("estimate", "chars", est.Chars, "usd", est.USD, "minutes", est.Minutes, "source", est.Source, "threshold_usd", c.Cfg.Cost.ConfirmOverUSD)
-		if est.USD > c.Cfg.Cost.ConfirmOverUSD {
+		log.Infow("estimate", "chars", est.Chars, "usd", est.USD, "minutes", est.Minutes, "source", est.Source, "threshold_usd", c.Cfg.GetFloat64("cost.confirm_over_usd"))
+		if est.USD > c.Cfg.GetFloat64("cost.confirm_over_usd") {
 			if _, err := c.Store.AddPending(ctx, sessionID, "confirm_tts", mustJSON(pendingConfirm{est.Chars, est.USD, est.Minutes})); err != nil {
 				return event.Wrap("Something went wrong on my side.", err)
 			}
@@ -89,7 +90,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		sp, err := c.TTS.Synth(ctx, ch)
 		if err != nil {
 			c.savePartial(ctx, sessionID, pcm)
-			return event.Wrap(providerMessage(err, i+1, len(chunks)), fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), tts.Model, err))
+			return event.Wrap(providerMessage(err, i+1, len(chunks)), fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), ttsModel, err))
 		}
 		cost, err := c.recordTTS(ctx, sessionID, sp, len([]rune(ch)))
 		if err != nil {
@@ -106,11 +107,11 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		return event.Wrap("I couldn't encode the audio (is ffmpeg installed?).", err)
 	}
 	seconds := int(audio.Duration(all))
-	audioKey := audioKeyFor(hash, tts.Model, tts.Voice)
+	audioKey := audioKeyFor(hash, ttsModel, ttsVoice)
 	if err := c.Blob.Put(ctx, audioKey, mp3); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
-	if err := c.Store.PutAudio(ctx, hash, tts.Model, tts.Voice, audioKey, seconds); err != nil {
+	if err := c.Store.PutAudio(ctx, hash, ttsModel, ttsVoice, audioKey, seconds); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 	msg, err := c.Store.AddMessage(ctx, store.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: audioKey, Format: "voice"})
@@ -138,15 +139,16 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 // computed from tokens x the stored price, and returns that cost (0 if the
 // price is unknown, in which case the row's cost stays NULL).
 func (c *Core) recordTTS(ctx context.Context, sessionID string, sp provider.Speech, chars int) (float64, error) {
-	tts := c.Cfg.Models.TTS
-	in, out := pricing.TTSTokens(chars, audio.Duration(sp.PCM), tts.AudioTokensPerSec)
+	cfg := c.Cfg
+	ttsProvider, ttsModel := cfg.GetString("models.tts.provider"), cfg.GetString("models.tts.model")
+	in, out := pricing.TTSTokens(chars, audio.Duration(sp.PCM), cfg.GetFloat64("models.tts.audio_tokens_per_sec"))
 	e := store.LedgerEntry{
-		SessionID: sessionID, Role: "tts", Provider: tts.Provider, Model: tts.Model,
+		SessionID: sessionID, Role: "tts", Provider: ttsProvider, Model: ttsModel,
 		GenerationID: sp.GenerationID, Chars: chars, InputUnits: in, OutputUnits: out,
 	}
 	var cost float64
-	if p, err := c.Prices.Get(ctx, tts.Provider, tts.Model); err != nil {
-		logx.With(ctx, c.Log).Errorw("no price for the tts model, cost left unknown", "model", tts.Model, "err", err)
+	if p, err := c.Prices.Get(ctx, ttsProvider, ttsModel); err != nil {
+		logx.With(ctx, c.Log).Errorw("no price for the tts model, cost left unknown", "model", ttsModel, "err", err)
 	} else {
 		cost = pricing.TTSCost(p, in, out)
 		e.CostUSD = &cost

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"sevi/internal/blob"
-	"sevi/internal/config"
 	"sevi/internal/event"
 	"sevi/internal/httpx"
 	"sevi/internal/pricing"
@@ -90,14 +90,16 @@ func TestLinksEndToEnd(t *testing.T) {
 			}
 			t.Cleanup(func() { st.Close() })
 
-			cfg := &config.Config{
-				Models: config.Models{
-					TTS: config.TTS{Provider: "p", Model: "m", Voice: "v", ChunkChars: 3000},
-					LLM: config.LLM{Provider: "p", Model: "llm-m"},
-				},
-				Reply: config.Reply{Voice: true},
-				Cost:  config.Cost{ConfirmOverUSD: 5, EstUSDPer1KChar: 0.014},
-			}
+			cfg := viper.New()
+			cfg.Set("models.tts.provider", "p")
+			cfg.Set("models.tts.model", "m")
+			cfg.Set("models.tts.voice", "v")
+			cfg.Set("models.tts.chunk_chars", 3000)
+			cfg.Set("models.llm.provider", "p")
+			cfg.Set("models.llm.model", "llm-m")
+			cfg.Set("reply.voice", true)
+			cfg.Set("cost.confirm_over_usd", 5)
+			cfg.Set("cost.est_usd_per_1k_chars", 0.014)
 			tts := &fakeTTS{failAt: tc.ttsFailAt}
 			prices := &pricing.Book{
 				Store: st, TTL: time.Hour, Log: log,

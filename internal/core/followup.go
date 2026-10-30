@@ -159,9 +159,9 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 			OnRetry: retryNotice(j),
 		})
 		if err != nil {
-			return event.Wrap(llmMessage(err), fmt.Errorf("transcribe (model %s): %w", cfg.Models.STT.Model, err))
+			return event.Wrap(llmMessage(err), fmt.Errorf("transcribe (model %s): %w", cfg.GetString("models.stt.model"), err))
 		}
-		cost, err := c.recordLLM(ctx, sessionID, "stt", cfg.Models.STT.Provider, cfg.Models.STT.Model, res, len([]rune(res.Text)))
+		cost, err := c.recordLLM(ctx, sessionID, "stt", cfg.GetString("models.stt.provider"), cfg.GetString("models.stt.model"), res, len([]rune(res.Text)))
 		if err != nil {
 			return event.Wrap("Something went wrong on my side.", err)
 		}
@@ -176,7 +176,7 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 	defaultFormat := "text"
-	if cfg.Reply.Voice {
+	if cfg.GetBool("reply.voice") {
 		defaultFormat = "voice"
 	}
 	parts := []provider.ChatPart{{Text: convo}}
@@ -186,16 +186,16 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 
 	j.progress("Thinking…", 0, 0)
 	res, err := c.LLM.Chat(ctx, provider.ChatRequest{
-		System:     systemPrompt(cfg.Models.LLM.SystemPrompt, defaultFormat),
+		System:     systemPrompt(cfg.GetString("models.llm.system_prompt"), defaultFormat),
 		Parts:      parts,
 		SchemaName: "reply",
 		Schema:     replySchema,
 		OnRetry:    retryNotice(j),
 	})
 	if err != nil {
-		return event.Wrap(llmMessage(err), fmt.Errorf("chat (model %s): %w", cfg.Models.LLM.Model, err))
+		return event.Wrap(llmMessage(err), fmt.Errorf("chat (model %s): %w", cfg.GetString("models.llm.model"), err))
 	}
-	cost, err := c.recordLLM(ctx, sessionID, "llm", cfg.Models.LLM.Provider, cfg.Models.LLM.Model, res, len([]rune(res.Text)))
+	cost, err := c.recordLLM(ctx, sessionID, "llm", cfg.GetString("models.llm.provider"), cfg.GetString("models.llm.model"), res, len([]rune(res.Text)))
 	if err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
@@ -233,11 +233,11 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg st
 	// Voice: speak the answer with the TTS model, as an Ogg/Opus voice note.
 	j.progress("Recording the answer…", 0, 0)
 	var pcm [][]byte
-	chunks := fetch.Chunk(r.Answer, cfg.Models.TTS.ChunkChars)
+	chunks := fetch.Chunk(r.Answer, cfg.GetInt("models.tts.chunk_chars"))
 	for i, ch := range chunks {
 		sp, err := c.TTS.Synth(ctx, ch)
 		if err != nil {
-			return event.Wrap(providerMessage(err, i+1, len(chunks)), fmt.Errorf("answer chunk %d of %d (model %s): %w", i+1, len(chunks), cfg.Models.TTS.Model, err))
+			return event.Wrap(providerMessage(err, i+1, len(chunks)), fmt.Errorf("answer chunk %d of %d (model %s): %w", i+1, len(chunks), cfg.GetString("models.tts.model"), err))
 		}
 		cost, err := c.recordTTS(ctx, sessionID, sp, len([]rune(ch)))
 		if err != nil {

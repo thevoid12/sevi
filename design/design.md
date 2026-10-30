@@ -1,489 +1,129 @@
-# sevi design (version 0)
-check [design](sevi-design-map.html) for the design of this version
-Status: version 0 is built and running; this file is revised as it is reviewed. Covers [usecase.md](usecase.md) UC-1 and, in version 1, UC-2's attachments.
+# Plan: Deploy sevi at $0 (API Gateway + Cloud Run + Turso)
 
-Naming: **the prototype** is the original single-file CLI; **version 0** is the current working app (link to audio, voice and text follow-ups); **version 1** is the next round (attachments, hardening, readme, and the items under Version 1 in [implementation.md](implementation.md)).
+## Context
+Usage is 3 runs a day, 2-3 days a week: about 25-40 sessions a month, roughly 2 hours of compute. Every free tier involved covers that many times over, so cost is not the hard constraint. The design optimises for three things instead: no bill is possible (kill switch everywhere), strangers can never start an instance, and as little new code as possible.
 
-## Goals
+The Go binary (with ffmpeg) runs unchanged in one Cloud Run container. The database moves to Turso, which speaks the same SQLite dialect, so sqlc and migrations 001-006 stay. Telegram reaches the container through Google API Gateway, which checks an API key before anything starts. Cloudflare (D1, R2) is no longer used.
 
-- Blog URL in, audio out. Voice follow-up questions, audio answers, as long as needed.
-- General voice chat with an LLM (version 0). File attachments on top of it (version 1).
-- Chat surface is pluggable (Telegram, Discord, ...). The core knows nothing about any of them.
-- Web interface is ours, a separate client of the same core.
-- Any model provider via bring-your-own-key; models are config, not code.
-- Cost tracked per session and per call, ready to show on the web.
-- As cheap as possible, ideally near-free on Cloudflare.
-- Usable today.
+## Decisions (and what they replaced)
+| Topic | Decision | Replaced |
+|---|---|---|
+| Database | Turso over the pure-Go `libsql-client-go` driver. Real transactions, SQLite dialect, no CGO. Free plan, overages off. | D1 over the Cloudflare REST API (custom driver, no interactive transactions) |
+| Audio storage | No blob store in production. `audio_cache` stores Telegram's `file_id`; re-sending a blog is a free `sendAudio(file_id)`. Blob interface stays, local disk for dev; object storage comes with the web adapter. | R2 |
+| Front door | API Gateway checks `?key=K`; Cloud Run is IAM-only and only the gateway's service account may call it. | (kept) |
+| Second lock | Go checks Telegram's `X-Telegram-Bot-Api-Secret-Token` in constant time. | (kept) |
+| Background work | Reply 200 to Telegram in milliseconds, run the job in a goroutine. Needs instance-based billing (`--no-cpu-throttling`). | (kept; Cloud Tasks considered and dropped as not worth it for this usage) |
+| Instance lifetime | Idle manager keeps the instance warm through the listening + follow-up window with self-pings, then exits. | Idle manager that only shortened lifetime |
+| State | Everything that must survive a restart is in Turso: `pending` Yes/No prompts and seen `update_id`s. Running jobs stay in memory (lost on a kill; resend the link, caches make it cheap). | `pending` and dedupe in memory |
+| Secrets | One JSON secret in Secret Manager. | Six separate secrets |
+| Money | Hard kill switches: GCP budget disables billing, Turso free plan stops at its limit, OpenRouter key has a credit limit. | $1 budget alert (email only) |
 
 ## Architecture
+See `design/deploy-architecture.svg`. In text:
 
 ```
- Telegram ─┐
- Discord  ─┼─ adapters ──► Core API ──► Providers (LLM / STT / TTS)
- Web UI   ─┘  (thin)        │  │
-                            │  └──► Fetcher (Jina Reader)
-                            ▼
-                      Store (sessions, messages, costs)
-                      Blob  (audio files)
+You (Telegram app)
+   │
+Telegram servers ──POST /telegram?key=K + secret header──► API Gateway ──(SA token)──► Cloud Run "sevi"
+                                                           │ bad/missing key:            (IAM-only, min 0, max 1,
+Stranger ──────────────────────────────────────────────────┘ rejected, nothing starts     CPU always on, 1 vCPU / 1 GiB)
+Stranger ──direct run.app URL──► 403 from Google IAM, nothing starts                      │
+                                                                                           ├─ webhook handler → 200 in ms
+                                                 ┌── self-ping /keepalive?key=K ◄──────────┤─ idle manager
+                                                 ▼                                         ├─ Core: jobs as goroutines, ffmpeg in /tmp (RAM)
+                                            API Gateway                                    │
+                                                                                           ├──► api.telegram.org  (sendMessage, editMessageText,
+                                                                                           │                       sendAudio / sendVoice, getFile)
+                                                                                           ├──► OpenRouter        (chat, TTS, price list)
+                                                                                           ├──► Jina Reader       (page → text)
+                                                                                           └──► Turso             (all tables, SQL over HTTPS)
+Secret Manager (one JSON) · Artifact Registry (image) · Budget → Pub/Sub → billing kill switch
 ```
 
-Three layers, three separate things:
+## Request flow
+1. You send a link or a voice note. Telegram POSTs the update to `https://<gateway>/telegram?key=K` with the `secret_token` header.
+2. The gateway checks the key. A missing or wrong key is rejected there and Cloud Run is never contacted. A valid one is forwarded with the gateway service account's token. A request straight to the `run.app` URL gets 403 from Google IAM and starts nothing.
+3. If no instance is running, Cloud Run cold-starts one (time to be measured in the spike). No restore step; the database is remote.
+4. The webhook handler checks the secret header, caps the body at 64 KB, checks the `from.id` allowlist (200 on miss so Telegram does not retry), records `update_id` in Turso (duplicate → 200, nothing else), then replies 200.
+5. A goroutine runs the job. Status goes to Telegram as separate outgoing calls: `sendMessage` once, then `editMessageText` as each step finishes, then `sendAudio` (blog) or `sendVoice` / `sendMessage` (answer). Rows go to Turso.
+6. The idle manager keeps the instance warm for the window, pinging its own `/keepalive` through the gateway, then exits.
 
-1. **Core**: sessions, pipeline, providers, cost ledger. Exposes one API.
-2. **Adapters**: translate a platform's events to Core API calls and Core
-   responses back to platform messages. No business logic. Third parties can
-   write their own.
-3. **Web UI**: another client of the Core API, plus cost and history views.
+## Idle manager
+Cloud Run only counts requests in progress when deciding an instance is busy; code running in the background does not count. So the manager keeps the instance alive with real requests.
 
-## Core API (the adapter contract)
+- **Opens** when any job starts. Never exits while a job or request is running.
+- **After a blog is sent:** window ends at now + audio length + first step.
+- **After each follow-up answer:** window ends at now + next step. Steps from `app.idle_windows_min`, default `[10, 8, 6, 4, 2]`, floor 2. A new blog resets to the first step.
+- **While a Yes/No prompt is pending:** first step.
+- **Keep-warm:** while the window is open, `POST /keepalive?key=K` through the gateway every 5 minutes (`app.keepalive_min`). The handler checks the secret header and returns 204.
+- **Hard cap:** the window can never end more than 90 minutes from now (`app.idle_cap_min`), whatever the audio length, so a bug cannot keep an instance up all month.
+- **Close:** window over, no job, no request in flight → stop pinging, graceful exit 0. Fallback if Cloud Run reports self-exit as an error: just stop pinging and let Cloud Run remove the idle instance (still free).
+- **SIGTERM:** `Core.Close` drain within Cloud Run's grace period. A job still running is lost (resend the link).
 
-Everything an adapter needs is two operations plus reads. Adapters send
-platform-neutral input and get platform-neutral output.
+## Steps
 
-```
-POST /v1/messages
-  in:  { user, thread_ref, parts: [ {type: url|text|audio|file, ...} ] }
-  out: { session_id, parts: [ {type: audio|text, ...} ], cost }
+### A. Spike first (decides nothing else changes)
+1. Turso: create a database, run migrations 001-006 through `libsql-client-go`, run `TestLinksEndToEnd` against it. Check `sql.Tx` paths in `internal/store` and `internal/core` work over the wire. Test a stale pooled connection after 20 idle minutes (a known weak spot of that driver; a maintained fork exists if upstream misbehaves).
+2. Image: build the real image (Go + static ffmpeg on a slim base). Check size (< ~200 MB so two versions fit the 0.5 GB registry free tier). Deploy a throwaway service, let it go cold, time the first request and the first Turso query.
 
-GET  /v1/sessions/:id            history + cost
-GET  /v1/sessions/:id/cost       per-call ledger
-```
+### B. Go changes
+3. **Store:** choose the driver by config. Local dev and tests keep file SQLite; production uses `libsql://<db>.turso.io?authToken=…`. Migrations run at boot through the same `database/sql` handle.
+4. **Migration 007:** `seen_updates (update_id unique, created_on)`; `audio_cache.tg_file_id`; confirm `pending` is persisted (the design map says it is; the old deploy plan had it in memory). New migrations convert rows, never drop tables.
+5. **Webhook adapter** (`internal/adapter/telegram/`): `http.Handler` for `POST /telegram` doing the checks in step 4 of the flow, then handing the update to the existing per-update goroutine. Keep long polling behind a config flag for local dev. Listen on `$PORT`, set `api.allow_remote_listen`.
+6. **file_id reuse:** after `sendAudio`, store the returned `file_id` in `audio_cache`. On a cache hit, send by `file_id`; fall back to re-encoding only if Telegram rejects it.
+7. **Idle manager** package wired in `cmd/sevi/main.go` (Core reports job start/end, message kind and audio length). Add `POST /keepalive`.
+8. **Secrets:** read one JSON env var (`SEVI_SECRETS`) into config: `telegram_bot_token`, `telegram_webhook_secret`, `openrouter_api_key`, `turso_url`, `turso_token`, `gateway_api_key` (used by keep-warm pings and the webhook script), `jwt_secret`.
 
-- `thread_ref` is the adapter's own handle for "where this came from", e.g.
-  Telegram `chat_id + replied-to message_id`. Core stores a mapping
-  `(adapter, thread_ref) -> session_id`. This is how threading works without
-  Core knowing what a Telegram reply is.
-- Messages start **jobs**. A job is one unit of work; adapters follow it:
+### C. Container
+9. `deploy/Dockerfile`: multi-stage, `CGO_ENABLED=0`, slim runtime with a static ffmpeg and the binary. Note that `/tmp` on Cloud Run is memory: a 30-minute blog's raw chunks plus MP3 need ~100-150 MB, hence 1 GiB.
 
-```
-POST /v1/messages            -> 202 {job_id, session_id, status, events}
-POST /v1/messages?wait=1     -> blocks until the job stops running, same shape + parts
-GET  /v1/jobs/{id}?after=N&wait=S   events with seq > N; long-polls up to S seconds
-GET  /v1/audio/{message_id}  the MP3 (range requests, so seeking works)
-```
+### D. Google Cloud
+10. **Kill switch first:** budget at $1 → Pub/Sub topic → small function that disables billing on the project. Budget notices can lag by hours, so max-instances=1 and the idle cap are what limit how fast money could go.
+11. **Secret Manager:** one secret `sevi-secrets` (JSON). Rotate with `versions add` and destroy the old version immediately (free tier: 6 active versions).
+12. **Artifact Registry:** cleanup policy keeps the last 2 images.
+13. **Cloud Run:** `--no-allow-unauthenticated --min-instances=0 --max-instances=1 --no-cpu-throttling --cpu=1 --memory=1Gi --timeout=3600`, secret mounted as `SEVI_SECRETS`. Region must be one API Gateway supports (us-central1 or us-east1).
+14. **API Gateway:** service account with only `roles/run.invoker` on the service. `deploy/openapi.yaml` exposes `POST /telegram` and `POST /keepalive`, both with `security: api_key` in the `key` query param, and a backend deadline of ~30 s. Create the API key, restrict it to this API.
 
-  Job status: `running`, `done`, `failed`, `needs_confirmation`. A job is
-  `done` as soon as the audio is ready; its cost arrives later as a `cost`
-  event (`cost_pending` is true until then), because the provider's usage
-  record can lag by up to a minute. Jobs are held in memory (lost on restart);
-  sessions, messages and the ledger are in SQLite.
-- Input parts: `url` (a text part that is just a link also counts), and
-  `confirm` with `decision: yes|no` plus the `session_id` being answered.
-  Output parts: `audio` (`message_id`, `seconds`) and `text`.
-- Input routing in Core:
-  - `url` part: a new **blog session**. Fetch, clean, estimate, TTS, return audio.
-  - Estimated cost over `cost.confirm_over_usd`: the job ends `needs_confirmation`
-    with a `confirm` event ("about 8.7k characters, roughly 9 minutes, around
-    $0.13. Go ahead?") and a row in `pending`. A `confirm` message resumes or
-    cancels it.
-  - `audio`/`text` inside an existing session (follow-ups) and free chat: Phase 5-6.
-- Errors over HTTP: `{"error": {"message": <safe text>, "ref": <request id>}}`.
-  Every response carries `X-Request-Id`; a caller may supply one.
-- The API binds to `app.listen` (localhost) with no authentication in version 0.
+### E. Turso
+15. Database in the region nearest the Cloud Run region. Database-scoped auth token. Confirm the account has overages off.
 
-## Sessions and threading
+### F. OpenRouter
+16. Credit limit on the API key. `cost.confirm_over_usd` (0.20) stays.
 
-A session is one conversation: a blog and every question asked about it, or a
-free chat. Every message is stored with its time (`created_on`), its role, its
-text (the transcript for voice) and a `parent_id`: the message it was a reply to.
+### G. Register and docs
+17. `deploy/set-webhook.sh`: reads the bot token, gateway key and webhook secret from the JSON (never typed into the shell), calls `setWebhook` with `url=https://<gateway>/telegram?key=…` and `secret_token=…`, then `getWebhookInfo`.
+18. Update README and `design/implementation.md` Phase 7; add `deploy/` (Dockerfile, openapi.yaml, deploy.sh, set-webhook.sh) and `design/deploy-architecture.svg`.
 
-- **Context for any turn = the whole session in time order**, each message with
-  its timestamp, plus the blog text for a blog session. It does not matter
-  which message I replied to: all questions about a blog form a single thread,
-  so a question asked from an old message still sees everything said since.
-- The message I replied to is marked in the prompt ("the user is replying to
-  this message: ..."), so the model knows what "that" or "the second point"
-  refers to.
-- `parent_id` is kept for that marker and for a web UI that shows the reply
-  structure; it does not limit what the model sees.
-- Transcripts are stored, so later turns send text, not old audio again. The
-  user's own voice notes are also kept as audio for replay.
-- **Thread map.** `thread_map` maps an adapter's handle for *every* message,
-  both mine and the bot's (Telegram `chat_id:message_id`), to a message id, so
-  a reply to any of them finds its session.
-  - Core registers my message itself when it arrives (it knows my handle and
-    which handle I replied to).
-  - The adapter registers the bot's messages after sending them, through
-    `POST /v1/threads {adapter, thread_ref, message_id}`.
-  - A message that is not a reply starts a new free chat with no blog. A reply
-    to a message sevi does not know (e.g. an audio sent before threading was
-    tracked) is **refused with an explanation**, not answered in a blank chat:
-    the person meant a particular blog, and an answer without it would be a
-    guess presented as a reply. (This happened once: the model, given no blog,
-    invented one.)
-  - A free chat tells the model plainly that it has no blog or document and
-    must not invent one; the system prompt also says to use only the material
-    given and to say so when the answer is not in it.
-- Web: sessions are explicit (list, open, continue).
-- **Long conversations are summarised.** When the messages not yet summarised add
-  up to more than `conversation.summarize_over_chars` (100,000 characters by
-  default, about 25,000 tokens; the blog's own text is not counted), the oldest
-  messages are folded, together with the earlier summary, into a new summary
-  stored on the session, until what is left in full is half that size (so the
-  next turn does not summarise again). Size is the only setting: there is no
-  message count, and the newest message is never folded. The model then sees: the
-  blog in full, the summary, the remaining messages in full, and the new one. The summary lists the user's questions in
-  order in their own words, then what was established and any stated preference
-  (voice or text). A reply to a message that has been folded in still shows that
-  message in the "replying to" note. A summary is one extra cheap model call
-  (about $0.0005), billed to the conversation; if it fails, the question is answered
-  with the full history. Setting `summarize_over_chars` to 0 turns it off.
-
-## Reply format (voice or text)
-
-Config: `reply.voice` (default `true`). One LLM call returns structured JSON:
-
-```json
-{ "transcript": "what the user said (if audio)", "format": "voice | text", "answer": "..." }
-```
-
-- The system prompt tells the model the default format (from `reply.voice`) and
-  to override it for this turn only when the NEW message explicitly asks for the
-  other format; a request in an earlier message does not carry over (without
-  this rule a model treated one "answer as text" as a standing preference). The model decides, so it works in any language and phrasing.
-- `reply.voice = false`: default text, and the same rule in reverse: an explicit
-  request for audio gets a voice note for that turn.
-- `format = voice`: the answer is spoken with the TTS model and sent as audio;
-  `format = text`: sent as a text message, and no TTS cost is incurred.
-- The blog link flow is unaffected: a link always produces audio.
-
-## Pipeline
-
-```
-blog:      URL -> Jina Reader markdown -> toSpeakable -> chunk -> TTS -> audio
-follow-up: voice -> LLM(whole session in time order + blog text, hears the audio) -> {transcript, format, answer}
-           format=voice: answer -> TTS -> audio     format=text: answer as text
-```
-
-- The prototype already did the blog path. Its fetch, cleanup and chunking were reused.
-- Answers should be written to be spoken: short, no markdown, no tables.
-  System prompt enforces it. For text answers the same brevity applies unless
-  asked otherwise.
-- Gemini can take audio input, so STT and LLM may be one call with an audio-capable
-  model. Keep STT as its own interface so it can be split.
-
-## Providers and BYOK
-
-Providers are defined once in `config.json`; each model role points at one
-by name and adds only a model ID. Config is grouped by concern (`app`,
-`providers`, `models`, `cost`, `telegram`, `log`); see `config.example.json`.
-
-```json
-"providers": { "openrouter": { "base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY" } },
-"models": {
-  "llm": { "provider": "openrouter", "model": "...", "system_prompt": "..." },
-  "tts": { "provider": "openrouter", "model": "google/gemini-3.8-flash-tts", "voice": "Kore", "chunk_chars": 3000 }
-}
-```
-
-- `models.stt` is optional. Absent: the voice note goes straight into one call
-  to an audio-capable LLM, which transcribes and answers together. Present:
-  transcribe with that model first, then call the LLM with text.
-- Default provider is OpenRouter (one key, many models). Any OpenAI-compatible
-  endpoint works by changing `base_url`.
-- **Client library: no framework. Our own thin `LLM`/`STT`/`TTS` interfaces over
-  the OpenAI-compatible HTTP API, using the official `openai/openai-go` SDK for
-  chat only.** Reasoning: the only thing we need is "talk to any provider the
-  user brings a key for". OpenAI-compatible endpoints are the common
-  denominator: OpenRouter exposes hundreds of models behind one, and OpenAI,
-  Gemini, Anthropic, Ollama, Groq and others all offer compatible endpoints,
-  so `base_url` + key + model covers them. A multi-provider Go library adds
-  little on top of that. langchaingo (chains, agents, RAG) is overkill, and a
-  web search found no clear industry-standard unified Go client: the space is
-  fragmented into small projects (litellm-style clients such as `voocel/litellm`
-  and `codewandler/llm`, `lexlapax/go-llms`, `smhanov/llmhub`), none verified
-  as widely used. Audio input and TTS are non-standard across providers, so
-  those two go over plain `net/http` anyway (the prototype already did TTS this way).
-  If a provider ever needs a native API, add an implementation of the same
-  interface.
-- BYOK: keys referenced by env var name in config, never stored in the file,
-  never logged. Multi-user encrypted key storage is later.
-- Changing a model is a config edit.
-
-## Concurrency
-
-Every message starts its own job in its own goroutine, and the Telegram adapter
-handles each incoming update in its own goroutine, so several blogs or questions
-at once are all worked on side by side. Measured with a stand-in speech model:
-three blogs finished speaking after 0.62 s where one after another would take
-1.8 s. What is shared:
-
-- **The same blog twice:** one request speaks it; the other waits ("already being
-  made") and then reuses the audio at no cost. Keyed by link, speech model and
-  voice, so a different voice is a separate job.
-- **Provider limits:** parallel jobs share one OpenRouter account, so many at once
-  can hit the upstream rate limit; the retry waits (3, 6, 12, 24 s) absorb short
-  bursts. There is no cap on how many jobs run at once.
-- **Within one blog** the chunks are spoken one after another (to keep them in
-  order); across blogs they overlap.
-- **ffmpeg** encodes use CPU and overlap too; a long blog takes a few seconds.
-- **SQLite** uses one connection, so database calls queue briefly. They are
-  short next to the speech calls.
-
-## Securing the endpoints
-
-Nothing but the adapters we write may talk to the Core. Two separate doors:
-
-1. **Our adapters and web page to the Core API (built).** Every request must carry
-   a signed token: a JWT, HS256, valid for `api.token_ttl_seconds` (300, five
-   minutes). All adapters share one secret (`api.secret_env`, `SEVI_JWT_SECRET`,
-   made with `openssl rand -hex 32`) and are listed in `api.adapters`. Core checks,
-   before any handler runs: the signature, that the token has not expired, that it
-   names a listed adapter, and that the algorithm is HS256 (never `none`). A
-   refused caller is told only "Unauthorized"; the real reason goes to the log with
-   the caller's address. An adapter may only post messages and register threads
-   under its own name (403 otherwise). With one shared secret that last rule keeps
-   adapters from mixing up their threads; it is not a second lock, because anything
-   holding the secret could name any adapter. Core will not start with a missing or
-   short secret, and will not start listening on an address other machines can
-   reach unless `api.allow_remote_listen` is set. `sevi token <adapter>` prints a
-   token for trying the API with curl.
-2. **Telegram to a webhook (for the Cloudflare deployment).** Telegram cannot send
-   a JWT. It can send a secret string in a header (`X-Telegram-Bot-Api-Secret-Token`)
-   that we choose when registering the webhook. The endpoint rejects any request
-   without it, and the user-ID allowlist still applies after that. Today there is
-   no webhook: the bot polls Telegram, so nothing connects in from outside.
-
-## Model call retries
-
-Chat and transcription calls go through `provider.Retrying`. A 429 (shared
-upstream pools such as Google AI Studio behind OpenRouter rate-limit in bursts of
-several seconds), a 5xx or a network error is retried with growing waits
-(3s, 6s, 12s, 24s; `app.retries` extra attempts, 4 in the example config). A
-rejected key, an out-of-credit account or a bad request is not retried. While
-waiting, the job emits a progress event so the person sees "trying again in N
-seconds" instead of silence. The speech client retries the same way.
-
-## Cost tracking
-
-Costs are **computed, not looked up**: tokens x a stored per-token price. There
-is no provider call per generation.
-
-- **Prices** live in the `model_prices` table (prompt, completion, audio input,
-  cache-read; USD per token) with the time they were fetched. They come from
-  one public call that lists every model (OpenRouter `GET /models?output_modalities=all`,
-  which includes speech models). A price is trusted for `cost.price_ttl_days`
-  (default 7). When one is older, the next cost calculation refetches the list,
-  re-prices every stored model in that one call, and logs any price that changed.
-  If the refetch fails, the stored price is used and the failure is logged.
-- **Tokens** come from the response for chat and transcription (`usage`, including
-  the audio-token and cached-token parts). A speech call returns no usage, so its
-  tokens are derived: output = seconds of audio produced x 25 (Gemini TTS bills
-  25 per second; measured 25.0 on real runs), input = characters / 4.5.
-- **Cached prompt tokens.** Providers discount a repeated prompt prefix (the blog
-  text resent every turn); those tokens are priced at the cache-read rate.
-  The usage report does not say whether cached tokens were text or audio, so a
-  turn that cached audio is priced a little high (under $0.0001 in practice).
-- **Ledger.** Every provider call is a `ledger` row written as it happens, with
-  tokens and cost, so a job's cost is known the moment it finishes. A row whose
-  price could not be found keeps a NULL cost and is counted as "unpriced".
-- **Check against reality.** On each price refresh, for each model, the latest
-  ledger row is compared with what the provider says it charged (one lookup per
-  model per refresh, in the background). A gap over 10% and over a tenth of a
-  cent is logged as a warning; otherwise it is logged as a match.
-- Measured on real calls: speech within 0.1% of the provider's charge, chat
-  exact for uncached turns.
-- **Estimate before a long job** = the stored speech price x tokens implied by the
-  character count and the speaking rate. Real example: 8,722 characters estimated
-  $0.125, billed $0.121. If no price is available the fallback is
-  `cost.est_usd_per_1k_chars`.
-- Cost levers: cheap TTS model, text answers (no speech), the audio cache
-  (re-shared links cost nothing), short answers by prompt.
-
-## Storage
-
-| What | Needs | Local (today) | Cloudflare |
-|---|---|---|---|
-| Sessions, messages, ledger, thread mapping | relational | SQLite | D1 |
-| Audio files, fetched blog text | blobs | disk | R2 |
-| Async jobs | queue | in-process | Queues |
-
-SQL is written in `.sql` files and turned into typed Go by sqlc; the SQLite driver is `mattn/go-sqlite3` (cgo; needs gcc to build, which matters for the deployment step). Core talks to `Store` and `Blob` interfaces so the backend is swappable.
-
-## Hosting
-
-Cloudflare is cheap but Workers do not run Go natively (only via limited
-WASM). Also, the prototype shells out (`os/exec`), likely for audio encoding, and Workers
-cannot run ffmpeg. Options:
-
-- **A. Core in TypeScript on Workers.** Native D1/R2/Queues, near-free. Needs a
-  rewrite of the Go code and an MP3 encoder in JS/WASM or a different audio output
-  format. Workers CPU limits need the paid plan ($5/mo) for TTS-sized jobs.
-- **B. Core in Go on Cloudflare Containers.** Keeps Go and ffmpeg. Paid plan,
-  scales to zero. Containers reach D1/R2 only via a Worker, adding glue.
-- **C. Core in Go, run locally now, Cloudflare later.** Zero infra to start,
-  testable today. Behind `Store`/`Blob` interfaces, move to B (or A) once the
-  shape is proven. Adapters (Telegram via long polling locally, webhook later).
-
-**Decision: C for version 0** (confirmed: everything local first, deployment decided after it works). It meets "use it today", keeps the working Go
-code, and does not lock in a hosting decision before the API has stabilised.
-Cloudflare migration is a later step, and the web UI can be Cloudflare Pages
-from the start because it only talks to the Core API.
-
-## Version 0 scope
-
-In (built):
-- Core in Go with Core API, SQLite, disk blobs.
-- Providers behind interfaces, OpenRouter default, models and STT mode in `config.json`.
-- Long blogs: all chunks stitched into one audio file; Yes/No before anything over `cost.confirm_over_usd`.
-- Telegram adapter (long polling, allowlisted to my user ID only): link -> audio;
-  reply with voice or text -> answer as a voice note or text; a message that is not a reply -> free chat.
-- Cost computed from tokens and stored prices, shown on every answer.
-
-Version 1 (not in version 0):
-- File attachments (documents, images) as context, in any chat.
-- Hardening: a clear error text per failure class, graceful shutdown, ledger backfill, log review.
-- A readme. Discord adapter, web UI, multi-user BYOK, generic providers, playback speed,
-  context summarization, resumable jobs.
-
-Between the two: fixes found in the design review, then deployment (Cloudflare).
-
-## Decisions
-
-- Hosting: local first (Go core, SQLite, disk). Deployment later.
-- STT: configurable (`models.stt` present or omitted); default (omitted) is one call to an audio-capable model.
-- Long blogs: one stitched audio file.
-- Delivery: Telegram `sendAudio` (seek bar for long files).
-- TTS model, voice, chunk size: in `config.json`, defaults from the prototype.
-- Cost confirm: above a configurable threshold, Core replies with a rough
-  cost and duration estimate (from character count and the observed per-character cost) and
-  waits for a yes before running TTS.
-- Single user. Bot answers only my Telegram user ID.
-- LLM client: no framework. Own interfaces over OpenAI-compatible HTTP; `openai-go` for chat, plain `net/http` for audio input and TTS. langchaingo dropped as overkill.
-- Default LLM and native-audio input: a Gemini flash model via OpenRouter (exact ID set in `config.json`).
-- Adapter link: Core serves the HTTP API on localhost. The Telegram adapter runs in the same binary (goroutine) but only talks to Core through that HTTP API, exactly as an outside adapter would.
-- Blog context: the session holds only the blog URL, which is all the adapter sends. Core fetches it with the existing Jina extractor, caches the cleaned text by URL hash (fetched once, reused for follow-ups and for re-shared links), and sends the whole text to the LLM each turn.
-- Progress: Telegram shows one status message, edited in place ('fetching', 'audio 3/12'), replaced by the audio when done.
-- ffmpeg stays a hard dependency (MP3 encode, chunk stitching, voice-note conversion). Revisit at deployment.
-- Language: blog audio is in the blog's language (TTS auto-detects). Follow-up answers match the language of my question.
-- Answer style: short, conversational, about 30-60 seconds, no markdown or lists. 'Longer' or 'explain more' goes deeper. Style prompt lives in `config.json`.
-- Failures: reply with the reason in one line. Retry a failed TTS chunk a couple of times; if it still fails, say which part failed instead of silently skipping (the prototype skipped silently). Partial work is kept.
-- Web UI: after Telegram works. Core API and cost ledger are shaped so it needs no core changes.
-- Attachments (UC-2): any file type is accepted and passed through to the LLM; the provider/model decides what it can read. Provider size limits apply, and a provider rejection is reported to the user as a plain error.
-- Everything tunable lives in `config.json`: models, voice, chunk size, thresholds, prompts, paths, log settings, allowlist, rates.
-- Cost: computed as tokens x a stored per-token price, with the price refetched at most every `cost.price_ttl_days` (7) and checked against one real charge per refresh. No per-call provider lookup.
-- Logging: Uber `zap`, using the sugared logger (`zap.SugaredLogger`) everywhere. Logs go to stdout and to a rotating file. Errors are always logged with context (session id, adapter, operation, provider, model) and also land in a separate error log file.
-- LLM model: `google/gemini-3.5-flash-lite` (USD per 1M tokens: text in 0.30, out 2.50, audio in 0.30, cached in 0.03). Chosen over the cheaper `gemini-2.5-flash-lite` (0.10 / 0.40), which was rate-limited upstream far too often on OpenRouter (2 of 11 calls); the 3.5 model's costs matched the provider's charge to the digit. A turn costs about $0.001 in LLM, against about $0.003 to speak the answer. Newer non-lite Gemini models (3.6 to 3.8) cost 2.5 to 3 times more. Swapping is a one-line config change. The `:batch` variants are asynchronous and not usable for chat.
-- One thread per blog: the model sees the whole session in time order with timestamps whichever message is replied to; the replied-to message is marked in the prompt. A message that is not a reply starts a new free chat; a reply to an unknown message is refused with an explanation.
-- Spoken answers go out as Telegram voice notes (OGG/Opus, native waveform), voice only with no text caption; the blog audio stays a normal audio file.
-- Reply format: `reply.voice` in config (default true); the model overrides it per turn when the user explicitly asks for text.
-- Telegram runs by long polling locally (no public URL).
-- Answers are sent as audio plus text (text in the caption or a follow-up message).
-- Confirmation threshold: estimated cost over $0.20, configurable (`cost.confirm_over_usd`).
-
-## Cost confirmation flow
-
-```
-URL -> fetch + clean -> estimate (chars -> est. TTS cost, est. minutes)
-  below threshold:  run immediately
-  above threshold:  reply "~12k words, ~$0.04, ~80 min. Go ahead?"  -> yes -> run
-```
-
-Estimate = tokens implied by the character count and speaking rate x the stored speech price (fallback `cost.est_usd_per_1k_chars`); minutes = chars / spoken-chars-per-minute.
-Pending confirmations are stored on the session. Ledger records the actual
-cost after the run so estimate quality can be checked.
-
-## Logging
-
-- Library: `go.uber.org/zap`, sugared logger passed into each component
-  (`internal/logx` builds it from config). Structured fields via
-  `Infow/Errorw`, e.g. `log.Errorw("tts chunk failed", "session", id, "chunk", i, "model", m, "err", err)`.
-- Sinks: console (human readable) plus JSON lines to `logs/sevi.log`.
-  Errors and above also go to `logs/error.log`.
-- Rotation: zap does not rotate files itself, so use `gopkg.in/natefinch/lumberjack.v2`
-  as the file writer. Size, backups, age and compression come from config.
-- Never log API keys, full audio, or full blog text. Log URL, sizes, durations,
-  cost and model.
-- Every inbound request gets a request id carried through adapter, core and
-  provider calls so one failure can be traced across the log.
-
-```json
-"log": { "level": "info", "dir": "logs", "max_size_mb": 20, "max_backups": 10, "max_age_days": 30, "compress": true }
-```
-
-## User-facing events vs logs
-
-Two separate channels. Phase 0 only built the second one.
-
-| | Logs (zap) | User events |
+## Cost
+| Item | Free tier | Expected use / month |
 |---|---|---|
-| Audience | me, debugging | the person in the chat/web |
-| Where | console, `sevi.log`, `error.log` | returned by Core API, rendered by the adapter |
-| Content | everything: ids, models, stack traces, raw provider errors | only what the user should see, plain language |
-| Format | free structured fields | a small typed struct |
+| Cloud Run, instance-based | 240,000 vCPU-s, 450,000 GiB-s | ~132,000 vCPU-s worst case (40 × 55 min) |
+| API Gateway | 2M calls | ~40 updates + ~400 pings + follow-ups |
+| Turso | 5 GB, 500M row reads, 10M row writes | tiny |
+| Secret Manager | 6 active versions, 10k accesses | 1 version, ~100 accesses |
+| Artifact Registry | 0.5 GB | 2 images |
+| Egress | 1 GiB within North America | MP3 uploads to Telegram, whose servers are likely outside North America: possibly a few cents. Watch the first bill. |
+| OpenRouter | paid | the real cost; capped by the key's credit limit |
 
-Core emits events; it never writes to a chat itself and never knows the surface.
+## Spam and abuse
+- No key: rejected at the gateway, nothing starts.
+- Direct `run.app` hit: 403 from IAM, nothing starts.
+- Key leaked, no secret header: wakes an instance, Go returns 403. Rotate the key and re-run `set-webhook.sh`.
+- Someone else's Telegram account: allowlist, 200 with no work.
+- Bot token leaked: the master secret (can replace the webhook and read the chat). Lives only in Secret Manager and local `.env`.
+- Backstops: max-instances=1, idle cap, billing kill switch, Turso free plan limits, OpenRouter credit limit, $0.20 confirm.
 
-```go
-type Event struct {
-    Kind    string // progress | notice | error | cost | done
-    Message string // safe, human text: "audio 3/12", "Blog fetch was blocked by the site"
-    Step, Total int // optional, for progress
-    CostUSD *float64 // optional
-}
-```
+## Risks
+- `libsql-client-go` upkeep: Turso's docs recommend it for remote access, but a community fork reports upstream deprecation and pooled-connection bugs. The spike tests stale connections; switch to the fork if needed.
+- Cold start time is unmeasured. If the first follow-up after a long silence feels slow, raise the first window step.
+- Instance killed mid-job (deploy, rare platform event) loses that job. Deploy only when idle.
+- Unverified: gateway-rejected requests start no instance and are not billed; a self-exiting container causes no Cloud Run error; API Gateway accepts the key as `?key=`; Telegram egress cost.
 
-- Adapters decide how to show them: Telegram edits one status message for
-  `progress`, sends `error` as a short reply, adds `cost` to the caption; the
-  web UI shows a progress bar and a cost badge.
-- Errors are split in two. Core wraps failures in a `UserError{Message, Cause}`:
-  `Cause` (raw provider text, stack) goes only to the logs with the request id;
-  `Message` is the only text an adapter sees. Raw provider errors can leak
-  details (URLs, quota info, keys in odd cases), so they never reach the user.
-- The request id is included in the error event ("ref: 3b09b725") so I can
-  grep the logs for exactly that failure.
-- Transport: the `POST /v1/messages` response carries the final events;
-  long jobs stream or poll events (Phase 3).
-
-## Implementation plan
-
-### Layout
-
-```
-cmd/sevi/main.go          wire config, store, core, HTTP server, adapters
-internal/config/          config.json + env keys
-internal/core/            sessions, routing, pipeline, cost confirm
-internal/provider/        LLM / STT / TTS interfaces + openai-go and net/http impls
-internal/fetch/           Jina fetch, toSpeakable, chunk (from the prototype's main.go)
-internal/audio/           ffmpeg encode + stitch
-internal/store/           SQLite (sessions, messages, ledger, thread map, url cache)
-internal/blob/            disk audio storage
-internal/api/             HTTP handlers for /v1/*
-internal/adapter/telegram/  long polling, calls Core only over HTTP
-```
-
-### SQLite tables
-
-- `sessions(id, kind blog|chat, url, created_at)`
-- `messages(id, session_id, role user|assistant, text, audio_path, created_at)`
-- `thread_map(adapter, thread_ref, message_id)` — Telegram `chat_id:message_id` of every message, mine and the bot's, mapped to a stored message
-- `ledger(id, session_id, role llm|stt|tts, provider, model, input_units, output_units, cost_usd, estimated, ts)`
-- `page_cache(url_hash, url, text, fetched_at)` and `audio_cache(url_hash, tts_model, voice, audio_key, seconds)`
-- `pending(session_id, kind confirm, payload, created_at)`
-
-### Build order
-
-1. Refactor the prototype into `fetch`, `audio`, `provider/tts`; keep a CLI path that still works.
-2. Config + Store + Blob + ledger writes on every provider call.
-3. Core pipeline for blog sessions and the HTTP API.
-4. Telegram adapter: link to audio, allowlist, status message, `sendAudio`.
-5. Cost estimate and confirm flow.
-6. Follow-ups: voice note to LLM (native audio) to TTS answer; thread mapping from replies.
-7. Free chat (built in step 6). File attachments: version 1.
-8. Hardening: version 1 (retries on rate limits were already done in version 0).
-
-Steps 1-4 give a usable bot today; 6 delivers UC-1 fully.
-
-## Known limitation (version 0)
-
-The provider layer is shaped to be generic (`providers` map, models refer to
-them by name) but version 0 only implements OpenRouter's request formats for TTS,
-audio input and cost reporting. Direct provider keys (OpenAI, Gemini, ...)
-need per-provider adapters; tracked under Version 1 in `implementation.md`.
-
-## Open questions
-
-1. **LLM model ID.** The prototype contained only a TTS model (`google/gemini-3.8-flash-tts`),
-   which cannot chat or hear audio. A separate chat/audio-input model ID is
-   needed in `config.json`. To be chosen from OpenRouter's list at step 6.
-2. Confirm OpenRouter's audio-input request format for the chosen model (plain HTTP).
+## Verification
+1. Spike (step A) passes: migrations, `TestLinksEndToEnd` on Turso, stale-connection test, image size, cold start timed.
+2. `docker run -p 8080:8080` locally with a dev Turso DB. POST fake updates: wrong secret header → 403; non-allowlisted user → 200, no work; repeated `update_id` → 200, no second job; valid update → audio sent, `file_id` stored.
+3. Deploy. Gateway with no key and a bad key → rejected, no Cloud Run request logged. `run.app` URL directly → 403, zero instances.
+4. `set-webhook.sh`, `getWebhookInfo` shows the URL and no errors. Send a blog link, get the MP3. Send the same link again → instant, $0.00, sent by `file_id`.
+5. Idle manager: after a 10-minute blog, instance stays up ~20 minutes with pings in the logs, then exits with no Cloud Run error. Follow-ups step the window down. Cap holds at 90 minutes.
+6. Scale to zero, then send a follow-up: cold start, history intact from Turso.
+7. Kill switch: trigger the function manually on a test project and confirm billing is disabled.

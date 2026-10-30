@@ -1,5 +1,6 @@
-.env
+secret.json
 output/
 config.json
 logs/
 data/
+.env

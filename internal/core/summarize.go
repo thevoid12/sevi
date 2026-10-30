@@ -23,8 +23,8 @@ When given earlier notes, fold the new messages into them: keep every earlier qu
 // It returns what the summarising call cost. It never fails the turn: if it cannot
 // summarise, the question is simply answered with the full history.
 func (c *Core) maybeSummarize(ctx context.Context, j *Job, sessionID, newMsgID string) float64 {
-	cfg := c.Cfg.Chat
-	if cfg.SummarizeOverChars <= 0 {
+	over := c.Cfg.GetInt("conversation.summarize_over_chars")
+	if over <= 0 {
 		return 0
 	}
 	log := logx.With(ctx, c.Log).With("session", sessionID)
@@ -62,7 +62,7 @@ func (c *Core) maybeSummarize(ctx context.Context, j *Job, sessionID, newMsgID s
 		open = append(open, m)
 		chars += utf8.RuneCountInString(m.Text.String)
 	}
-	if chars <= cfg.SummarizeOverChars {
+	if chars <= over {
 		return 0
 	}
 	// Walk back from the newest message, keeping messages in full while they fit
@@ -70,7 +70,7 @@ func (c *Core) maybeSummarize(ctx context.Context, j *Job, sessionID, newMsgID s
 	keepChars, kept := 0, 0
 	for i := len(open) - 1; i >= 0; i-- {
 		n := utf8.RuneCountInString(open[i].Text.String)
-		if kept >= 1 && keepChars+n > cfg.SummarizeOverChars/2 {
+		if kept >= 1 && keepChars+n > over/2 {
 			break
 		}
 		keepChars += n
@@ -105,7 +105,7 @@ func (c *Core) maybeSummarize(ctx context.Context, j *Job, sessionID, newMsgID s
 		log.Warnw("the model returned an empty summary, answering with the full history")
 		return 0
 	}
-	cost, err := c.recordLLM(ctx, sessionID, "llm", c.Cfg.Models.LLM.Provider, c.Cfg.Models.LLM.Model, res, utf8.RuneCountInString(summary))
+	cost, err := c.recordLLM(ctx, sessionID, "llm", c.Cfg.GetString("models.llm.provider"), c.Cfg.GetString("models.llm.model"), res, utf8.RuneCountInString(summary))
 	if err != nil {
 		log.Errorw("could not record the cost of summarising", "err", err)
 	}

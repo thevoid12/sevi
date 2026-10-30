@@ -23,16 +23,16 @@ type Estimate struct {
 // it falls back to cost.est_usd_per_1k_chars.
 func (c *Core) estimate(ctx context.Context, chars int) Estimate {
 	cfg := c.Cfg
-	cpm := cfg.Models.TTS.CharsPerMinute
+	cpm := cfg.GetInt("models.tts.chars_per_minute")
 	if cpm == 0 {
 		cpm = defaultCharsPerMinute
 	}
 	e := Estimate{Chars: chars, Minutes: float64(chars) / float64(cpm)}
-	if p, err := c.Prices.Get(ctx, cfg.Models.TTS.Provider, cfg.Models.TTS.Model); err == nil {
-		e.USD, e.Source = pricing.EstimateTTS(p, chars, cpm, cfg.Models.TTS.AudioTokensPerSec), "price"
+	if p, err := c.Prices.Get(ctx, cfg.GetString("models.tts.provider"), cfg.GetString("models.tts.model")); err == nil {
+		e.USD, e.Source = pricing.EstimateTTS(p, chars, cpm, cfg.GetFloat64("models.tts.audio_tokens_per_sec")), "price"
 	} else {
 		c.Log.Warnw("no model price for the estimate, using cost.est_usd_per_1k_chars", "err", err)
-		e.USD, e.Source = cfg.Cost.EstUSDPer1KChar/1000*float64(chars), "config"
+		e.USD, e.Source = cfg.GetFloat64("cost.est_usd_per_1k_chars")/1000*float64(chars), "config"
 	}
 	return e
 }

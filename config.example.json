@@ -1,5 +1,6 @@
 {
   "app": {
+    "dev": true,
     "listen": "127.0.0.1:8787",
     "data_dir": "data",
     "output_dir": "output",
@@ -61,5 +62,9 @@
     "max_size_mb": 20,
     "max_backups": 10,
     "max_age_days": 30
+  },
+  "secrets": {
+    "file": "secret.json",
+    "name": ""
   }
 }
