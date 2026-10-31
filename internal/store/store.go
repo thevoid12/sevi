@@ -14,9 +14,11 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 
 	"sevi/internal/model"
@@ -31,21 +33,57 @@ type Store struct {
 	q   *db.Queries
 }
 
-// Open connects to the Postgres database at dsn and applies migrations.
+// Open connects to the Postgres database at dsn and applies migrations. It is
+// tuned for Neon's free plan, which suspends compute after 5 idle minutes and
+// wakes it on the next connection (about a second):
+//   - idle connections are closed after 4 minutes, before Neon would drop them
+//     from under us, so a pooled connection is never silently dead;
+//   - the first connection is retried while the database wakes;
+//   - statements are described, not prepared by name, so the pooled (PgBouncer)
+//     endpoint works as well as the direct one.
 func Open(ctx context.Context, dsn string, log *zap.SugaredLogger) (*Store, error) {
-	conn, err := sql.Open("pgx", dsn)
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("parse database url: %w", err)
 	}
-	if err := conn.PingContext(ctx); err != nil {
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = 20 * time.Second
+	}
+	conn := stdlib.OpenDB(*cfg)
+	conn.SetMaxOpenConns(3) // one Cloud Run instance; a few queries at once is plenty
+	conn.SetMaxIdleConns(3)
+	conn.SetConnMaxIdleTime(4 * time.Minute)
+	conn.SetConnMaxLifetime(30 * time.Minute)
+	if err := pingWithRetry(ctx, conn, log); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("connect to db: %w (is it running? see localdb/docker-compose.yml)", err)
+		return nil, err
 	}
 	if err := migrate(ctx, conn, log); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	return &Store{sql: conn, q: db.New(conn)}, nil
+}
+
+// pingWithRetry tries a few times: a suspended Neon database can refuse or time
+// out the first connection while it starts.
+func pingWithRetry(ctx context.Context, conn *sql.DB, log *zap.SugaredLogger) error {
+	var err error
+	for attempt := 1; attempt <= 4; attempt++ {
+		if err = conn.PingContext(ctx); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		log.Warnw("database not reachable yet, retrying", "attempt", attempt, "err", err)
+		select {
+		case <-time.After(time.Duration(attempt) * time.Second):
+		case <-ctx.Done():
+		}
+	}
+	return fmt.Errorf("connect to db: %w", err)
 }
 
 func (s *Store) Close() error { return s.sql.Close() }
