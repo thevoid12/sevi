@@ -23,7 +23,7 @@ func TestSampleHoldsEverySecretTheCodeReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := []string{"DATABASE_URL", "SEVI_JWT_SECRET", "TELEGRAM_BOT_TOKEN", "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}
+	names := []string{"DATABASE_URL", "SEVI_JWT_SECRET", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}
 	for name := range cfg.GetStringMap("providers") {
 		names = append(names, strings.ToUpper(name)+"_API_KEY")
 	}

@@ -1,6 +1,8 @@
-// Package telegram is the Telegram adapter: it long-polls the Bot API,
-// turns messages into Core API calls, and renders Core's events as Telegram
-// messages. It holds no business logic and talks to Core only over HTTP.
+// Package telegram is the Telegram adapter: an HTTP handler for Telegram's
+// webhook that turns messages into Core API calls and renders Core's events as
+// Telegram messages. It holds no business logic and knows nothing of Core's code:
+// it talks to Core only over its HTTP API, exactly as the web app will, so it
+// can be mounted anywhere or moved to its own service. There is no long polling.
 //
 // Three things can arrive: a link (a blog to turn into audio), a question
 // (a voice note or text, usually a reply to an earlier message) and a yes/no
@@ -11,7 +13,12 @@ package telegram
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -21,7 +28,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"sevi/internal/auth"
 	"sevi/internal/logx"
 	"sevi/internal/reqid"
 )
@@ -29,28 +35,39 @@ import (
 const adapterName = "telegram"
 
 type Options struct {
-	Token       string
-	AllowedIDs  []int64
-	CoreURL     string // base URL of the Core API, e.g. http://127.0.0.1:8787
-	Secret      []byte // this adapter's API secret; every call to Core is signed with it
-	TokenTTL    time.Duration
-	ShowCost    bool   // append the cost to the blog audio caption
-	TelegramURL string // default https://api.telegram.org (override in tests)
+	Token         string // bot token from @BotFather
+	WebhookSecret string // must match setWebhook's secret_token; checked on every request
+	AllowedIDs    []int64
+	CoreURL       string                 // base URL of the Core API, e.g. http://127.0.0.1:8787
+	CoreToken     func() (string, error) // makes a bearer token for each call to Core
+	ShowCost      bool                   // append the cost to the blog audio caption
+	TelegramURL   string                 // default https://api.telegram.org (override in tests)
 }
 
 type Bot struct {
 	api      *botAPI
 	core     *seviClient
 	allowed  map[int64]bool
+	secret   []byte
 	showCost bool
 	log      *zap.SugaredLogger
 
 	mu      sync.Mutex
 	pending map[int64]string // chat -> session id awaiting a typed yes/no
+	seenIDs map[int]struct{} // recent update ids, to drop Telegram's retries
+	seenOrd []int
 	wg      sync.WaitGroup
 }
 
-func New(o Options, log *zap.SugaredLogger) *Bot {
+func New(o Options, log *zap.SugaredLogger) (*Bot, error) {
+	switch {
+	case o.Token == "":
+		return nil, errors.New("telegram: bot token is required")
+	case o.WebhookSecret == "":
+		return nil, errors.New("telegram: webhook secret is required (anyone could post fake updates without it)")
+	case o.CoreURL == "" || o.CoreToken == nil:
+		return nil, errors.New("telegram: core URL and token function are required")
+	}
 	if o.TelegramURL == "" {
 		o.TelegramURL = "https://api.telegram.org"
 	}
@@ -58,54 +75,78 @@ func New(o Options, log *zap.SugaredLogger) *Bot {
 	for _, id := range o.AllowedIDs {
 		allowed[id] = true
 	}
-	ttl := o.TokenTTL
-	if ttl == 0 {
-		ttl = 5 * time.Minute
-	}
-	secret := o.Secret
 	return &Bot{
-		api: &botAPI{base: o.TelegramURL, token: o.Token},
-		core: &seviClient{base: o.CoreURL, token: func() (string, error) {
-			return auth.Mint(secret, adapterName, ttl)
-		}},
-		allowed: allowed, showCost: o.ShowCost, log: log, pending: map[int64]string{},
-	}
+		api:     &botAPI{base: o.TelegramURL, token: o.Token},
+		core:    &seviClient{base: o.CoreURL, token: o.CoreToken},
+		allowed: allowed, secret: []byte(o.WebhookSecret), showCost: o.ShowCost, log: log,
+		pending: map[int64]string{}, seenIDs: map[int]struct{}{},
+	}, nil
 }
 
-// Run polls until ctx is cancelled, handling each update in its own goroutine
-// so a long job never blocks new messages.
-func (b *Bot) Run(ctx context.Context) {
-	b.log.Infow("telegram adapter started", "allowed_users", len(b.allowed))
-	offset := 0
-	backoff := time.Second
-	for ctx.Err() == nil {
-		ups, err := b.api.getUpdates(ctx, offset, 30)
+const (
+	secretHeader = "X-Telegram-Bot-Api-Secret-Token"
+	maxBodyBytes = 64 << 10
+	seenWindow   = 1024 // update ids remembered for dedupe
+)
+
+// Handler is the webhook endpoint. Telegram POSTs one update per request. The
+// checks run cheapest first and nothing else happens until they pass: method,
+// secret header (constant time), body size, JSON. A repeated update_id or a user
+// not on the allowlist is acknowledged with 200 and ignored, so Telegram does
+// not retry. Otherwise it replies 200 at once and handles the update in a
+// goroutine that lives under ctx (not the request), so a long job never blocks.
+func (b *Bot) Handler(ctx context.Context) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get(secretHeader)), b.secret) != 1 {
+			b.log.Warnw("webhook refused: bad secret header", "remote", r.RemoteAddr)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			b.log.Errorw("telegram poll failed", "err", err, "retry_in", backoff)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-			}
-			if backoff < 30*time.Second {
-				backoff *= 2
-			}
-			continue
+			http.Error(w, "bad request", http.StatusRequestEntityTooLarge)
+			return
 		}
-		backoff = time.Second
-		for _, u := range ups {
-			offset = u.UpdateID + 1
-			b.wg.Add(1)
-			go func() {
-				defer b.wg.Done()
-				b.handle(reqid.With(ctx, reqid.New()), u)
-			}()
+		var u update
+		if err := json.Unmarshal(body, &u); err != nil || u.UpdateID == 0 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
+		if b.seen(u.UpdateID) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+			b.handle(reqid.With(ctx, reqid.New()), u)
+		}()
+	})
+}
+
+// Wait blocks until every update being handled has finished (or its ctx ended).
+func (b *Bot) Wait() { b.wg.Wait() }
+
+// seen records id and reports whether it was already recorded.
+func (b *Bot) seen(id int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, dup := b.seenIDs[id]; dup {
+		return true
 	}
-	b.wg.Wait()
-	b.log.Infow("telegram adapter stopped")
+	b.seenIDs[id] = struct{}{}
+	b.seenOrd = append(b.seenOrd, id)
+	if len(b.seenOrd) > seenWindow {
+		delete(b.seenIDs, b.seenOrd[0])
+		b.seenOrd = b.seenOrd[1:]
+	}
+	return false
 }
 
 func (b *Bot) handle(ctx context.Context, u update) {

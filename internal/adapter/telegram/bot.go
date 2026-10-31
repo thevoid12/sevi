@@ -124,15 +124,6 @@ type redactedError struct {
 func (e *redactedError) Error() string { return e.msg }
 func (e *redactedError) Unwrap() error { return e.err }
 
-func (b *botAPI) getUpdates(ctx context.Context, offset, timeoutSec int) ([]update, error) {
-	var ups []update
-	err := b.call(ctx, "getUpdates", map[string]any{
-		"offset": offset, "timeout": timeoutSec,
-		"allowed_updates": []string{"message", "callback_query"},
-	}, &ups)
-	return ups, err
-}
-
 func markup(k keyboard) map[string]any {
 	if k == nil {
 		return map[string]any{"inline_keyboard": [][]button{}}

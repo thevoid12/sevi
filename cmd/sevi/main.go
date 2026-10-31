@@ -76,9 +76,11 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	if cfg.GetBool("telegram.enabled") {
-		if _, err := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN"); err != nil {
-			rlog.Errorw("missing Telegram token", "err", err)
-			return 1
+		for _, name := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"} {
+			if _, err := secrets.Require(sec, "telegram.enabled", name); err != nil {
+				rlog.Errorw("missing Telegram secret", "err", err)
+				return 1
+			}
 		}
 	}
 
@@ -151,10 +153,32 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 		c.Close()
 		return 1
 	}
-	srv := &http.Server{
-		Handler:           api.New(c, st, objects, log, verifier).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+	// The Core API owns "/"; the Telegram adapter is just another client of it
+	// (over HTTP, with its own token) whose webhook is mounted beside it.
+	mux := http.NewServeMux()
+	mux.Handle("/", api.New(c, st, objects, log, verifier).Handler())
+	var bot *telegram.Bot
+	if cfg.GetBool("telegram.enabled") {
+		token, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN")              // checked at startup
+		webhookSecret, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_WEBHOOK_SECRET") // checked at startup
+		ttl := config.TokenTTL(cfg)
+		bot, err = telegram.New(telegram.Options{
+			Token:         token,
+			WebhookSecret: webhookSecret,
+			AllowedIDs:    config.AllowedUserIDs(cfg),
+			CoreURL:       coreURL(ln.Addr()),
+			CoreToken:     func() (string, error) { return auth.Mint([]byte(secret), "telegram", ttl) },
+			ShowCost:      cfg.GetBool("cost.show_in_reply"),
+		}, log)
+		if err != nil {
+			log.Errorw("could not set up the telegram adapter", "err", err)
+			ln.Close()
+			c.Close()
+			return 1
+		}
+		mux.Handle("/telegram", bot.Handler(ctx))
 	}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	log.Infow("sevi started",
 		"config", cfgPath,
 		"listen", cfg.GetString("app.listen"),
@@ -168,21 +192,6 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 
-	var tgDone chan struct{}
-	if cfg.GetBool("telegram.enabled") {
-		token, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN") // checked at startup
-		bot := telegram.New(telegram.Options{
-			Token:      token,
-			AllowedIDs: config.AllowedUserIDs(cfg),
-			CoreURL:    coreURL(ln.Addr()),
-			Secret:     []byte(secret),
-			TokenTTL:   config.TokenTTL(cfg),
-			ShowCost:   cfg.GetBool("cost.show_in_reply"),
-		}, log)
-		tgDone = make(chan struct{})
-		go func() { defer close(tgDone); bot.Run(ctx) }()
-	}
-
 	select {
 	case err := <-errc:
 		log.Errorw("http server stopped", "err", err)
@@ -191,13 +200,13 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 	case <-ctx.Done():
 	}
 	log.Infow("shutting down")
-	if tgDone != nil {
-		<-tgDone
-	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		log.Errorw("http shutdown", "err", err)
+	}
+	if bot != nil {
+		bot.Wait()
 	}
 	c.Close()
 	return 0
