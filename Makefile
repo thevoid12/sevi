@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f localdb/docker-compose.yml
 
-.PHONY: build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
+.PHONY: gcp_log_retention build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
 
 # Start local Postgres and wait until it is healthy.
 docker_db_up:
@@ -28,3 +28,8 @@ build_linux:
 # Build the binary, then the production image.
 docker_build: build_linux
 	docker build -t sevi:local .
+
+# Keep Cloud Logging's default bucket for 7 days (shorter than the 30-day default, so never billed).
+# Usage: make gcp_log_retention PROJECT=my-project
+gcp_log_retention:
+	gcloud logging buckets update _Default --location=global --retention-days=7 --project=$(PROJECT)
