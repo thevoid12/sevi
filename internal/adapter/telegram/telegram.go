@@ -129,7 +129,17 @@ func (b *Bot) Handler(ctx context.Context) http.Handler {
 		go func() {
 			defer b.wg.Done()
 			defer b.active.Add(-1)
-			b.handle(reqid.With(ctx, reqid.New()), u)
+			ctx := reqid.With(ctx, reqid.New())
+			// The in-memory check above only knows this instance; Core remembers
+			// across instances and restarts. If Core cannot answer, handle the
+			// update anyway: a rare duplicate beats a lost message.
+			if dup, err := b.core.seen(ctx, strconv.Itoa(u.UpdateID)); err != nil {
+				logx.With(ctx, b.log).Warnw("could not check for a repeated update, handling it", "update_id", u.UpdateID, "err", err)
+			} else if dup {
+				logx.With(ctx, b.log).Infow("dropped a repeated update", "update_id", u.UpdateID)
+				return
+			}
+			b.handle(ctx, u)
 		}()
 	})
 }

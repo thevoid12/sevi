@@ -124,6 +124,16 @@ func (c *seviClient) registerThread(ctx context.Context, adapter, threadRef, mes
 	return c.do(ctx, "POST", "/v1/threads", body, nil)
 }
 
+// seen records the message and reports whether Core had already seen it.
+func (c *seviClient) seen(ctx context.Context, ref string) (bool, error) {
+	body, _ := json.Marshal(map[string]string{"ref": ref})
+	var out struct {
+		Duplicate bool `json:"duplicate"`
+	}
+	err := c.do(ctx, "POST", "/v1/seen", body, &out)
+	return out.Duplicate, err
+}
+
 func (c *seviClient) do(ctx context.Context, method, path string, body []byte, out any) error {
 	req, err := c.request(ctx, method, path, body)
 	if err != nil {

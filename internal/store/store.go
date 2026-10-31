@@ -320,3 +320,14 @@ func (s *Store) SetMessageAudio(ctx context.Context, id, audioKey string) error 
 func (s *Store) SetSummary(ctx context.Context, sessionID, summary, throughMessageID string) error {
 	return s.q.SetSessionSummary(ctx, db.SetSessionSummaryParams{Summary: nullStr(summary), SummaryThrough: nullStr(throughMessageID), ID: sessionID})
 }
+
+// MarkSeen records that the adapter has handled the message with this ref and
+// reports whether this is the first time. Rows older than a week are dropped.
+func (s *Store) MarkSeen(ctx context.Context, adapter, ref string) (bool, error) {
+	n, err := s.q.MarkSeen(ctx, db.MarkSeenParams{ID: newID(), Adapter: adapter, Ref: ref})
+	if err != nil {
+		return false, err
+	}
+	_ = s.q.PruneSeen(ctx) // housekeeping; a failure must not drop the message
+	return n > 0, nil
+}

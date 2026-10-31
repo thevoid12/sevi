@@ -45,6 +45,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions/{id}", a.getSession)
 	mux.HandleFunc("GET /v1/sessions/{id}/cost", a.getSessionCost)
 	mux.HandleFunc("POST /v1/threads", a.postThread)
+	mux.HandleFunc("POST /v1/seen", a.postSeen)
 	mux.HandleFunc("GET /v1/audio/{message_id}", a.getAudio)
 	return a.middleware(a.authenticate(mux))
 }
@@ -207,6 +208,23 @@ func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (model.Co
 		}
 	}
 	return cv, nil
+}
+
+// POST /v1/seen {ref}: an adapter asks "have I handled this inbound message
+// before?" (a platform retry). The first call for a ref answers duplicate:false and
+// records it; later calls answer duplicate:true. The adapter is taken from the token.
+func (a *API) postSeen(w http.ResponseWriter, r *http.Request) {
+	var req model.SeenRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req); err != nil || req.Ref == "" {
+		a.fail(w, r, http.StatusBadRequest, event.Wrap("ref is required.", err))
+		return
+	}
+	first, err := a.Store.MarkSeen(r.Context(), adapterFrom(r.Context()), req.Ref)
+	if err != nil {
+		a.storeFail(w, r, err, "")
+		return
+	}
+	a.writeJSON(w, http.StatusOK, model.SeenResponse{Duplicate: !first})
 }
 
 // POST /v1/threads {adapter, thread_ref, message_id}: an adapter registers its

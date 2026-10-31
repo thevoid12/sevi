@@ -104,6 +104,16 @@ type ThreadRequest struct {
 	MessageID string `json:"message_id"`
 }
 
+// SeenRequest is the body of POST /v1/seen; the adapter comes from its token.
+type SeenRequest struct {
+	Ref string `json:"ref"`
+}
+
+// SeenResponse says whether the adapter had already handled that message.
+type SeenResponse struct {
+	Duplicate bool `json:"duplicate"`
+}
+
 type ErrorBody struct {
 	Error struct {
 		Message string `json:"message"`
@@ -126,6 +136,8 @@ type Store interface {
 	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
 	SetMessageText(ctx context.Context, id, text string) error
 	SetMessageAudio(ctx context.Context, id, audioKey string) error
+
+	MarkSeen(ctx context.Context, adapter, ref string) (bool, error)
 
 	PutThread(ctx context.Context, adapter, threadRef, messageID string) error
 	MessageForThread(ctx context.Context, adapter, threadRef string) (Message, error)

@@ -89,6 +89,11 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return a.printToken(args[1])
 	}
 
+	// `sevi telegram set-webhook | webhook-info | delete-webhook` manages the bot's webhook.
+	if len(args) >= 1 && args[0] == "telegram" {
+		return a.telegramCmd(ctx, args[1:])
+	}
+
 	dbURL, err := a.Secret("database", "DATABASE_URL")
 	if err != nil {
 		rlog.Errorw("missing database URL", "err", err)
@@ -111,7 +116,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 
 	if len(args) > 0 {
 		if args[0] != "tts" || len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter>]  (no command: run the server)")
+			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter> | telegram ...]  (no command: run the server)")
 			return 2
 		}
 		if err := a.runTTS(ctx, args[1]); err != nil {

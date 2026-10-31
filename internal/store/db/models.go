@@ -92,6 +92,16 @@ type Pending struct {
 	UpdatedBy sql.NullString
 }
 
+type SeenUpdate struct {
+	ID        string
+	Adapter   string
+	Ref       string
+	CreatedOn time.Time
+	CreatedBy sql.NullString
+	UpdatedOn sql.NullTime
+	UpdatedBy sql.NullString
+}
+
 type Session struct {
 	ID             string
 	Kind           string
