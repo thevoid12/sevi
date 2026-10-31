@@ -13,14 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
-
 	"sevi/internal/auth"
 	"sevi/internal/core"
 	"sevi/internal/event"
 	"sevi/internal/logx"
 	"sevi/internal/model"
-	"sevi/internal/objectstore"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
 )
@@ -30,15 +27,13 @@ import (
 const audioURLTTL = 12 * time.Hour
 
 type API struct {
+	*model.Service
 	core     *core.Core
-	store    *store.Store
-	objects  objectstore.Store
-	log      *zap.SugaredLogger
 	verifier *auth.Verifier
 }
 
-func New(c *core.Core, st *store.Store, objects objectstore.Store, log *zap.SugaredLogger, v *auth.Verifier) *API {
-	return &API{core: c, store: st, objects: objects, log: log, verifier: v}
+func New(svc *model.Service, c *core.Core, v *auth.Verifier) *API {
+	return &API{Service: svc, core: c, verifier: v}
 }
 
 // Handler returns the routes wrapped in request-id, access-log and authentication
@@ -146,12 +141,12 @@ func (a *API) waitForChange(r *http.Request, job *core.Job, after int, max time.
 
 func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	sess, err := a.store.GetSession(ctx, r.PathValue("id"))
+	sess, err := a.Store.GetSession(ctx, r.PathValue("id"))
 	if err != nil {
 		a.storeFail(w, r, err, "I don't know that session.")
 		return
 	}
-	msgs, err := a.store.ListMessages(ctx, sess.ID)
+	msgs, err := a.Store.ListMessages(ctx, sess.ID)
 	if err != nil {
 		a.storeFail(w, r, err, "")
 		return
@@ -173,7 +168,7 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getSessionCost(w http.ResponseWriter, r *http.Request) {
-	sess, err := a.store.GetSession(r.Context(), r.PathValue("id"))
+	sess, err := a.Store.GetSession(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.storeFail(w, r, err, "I don't know that session.")
 		return
@@ -187,13 +182,13 @@ func (a *API) getSessionCost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) cost(r *http.Request, sessionID string, withLedger bool) (model.CostView, error) {
-	sc, err := a.store.SessionCost(r.Context(), sessionID)
+	sc, err := a.Store.SessionCost(r.Context(), sessionID)
 	if err != nil {
 		return model.CostView{}, err
 	}
 	cv := model.CostView{TotalUSD: sc.TotalUsd, Calls: sc.Calls, UnknownCalls: sc.UnknownCalls}
 	if withLedger {
-		rows, err := a.store.ListLedger(r.Context(), sessionID)
+		rows, err := a.Store.ListLedger(r.Context(), sessionID)
 		if err != nil {
 			return model.CostView{}, err
 		}
@@ -227,11 +222,11 @@ func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusForbidden, event.Wrap("An adapter may only register its own threads.", fmt.Errorf("token for %q registered a thread as %q", caller, t.Adapter)))
 		return
 	}
-	if _, err := a.store.GetMessage(r.Context(), t.MessageID); err != nil {
+	if _, err := a.Store.GetMessage(r.Context(), t.MessageID); err != nil {
 		a.storeFail(w, r, err, "I don't know that message.")
 		return
 	}
-	if err := a.store.PutThread(r.Context(), t.Adapter, t.ThreadRef, t.MessageID); err != nil {
+	if err := a.Store.PutThread(r.Context(), t.Adapter, t.ThreadRef, t.MessageID); err != nil {
 		a.storeFail(w, r, err, "")
 		return
 	}
@@ -241,7 +236,7 @@ func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
 // audioURL is a presigned link to the stored audio, made on demand (signing is
 // local and free). Stores that cannot sign get the API's own streaming route.
 func (a *API) audioURL(ctx context.Context, key, messageID string) string {
-	u, err := a.objects.PresignGet(ctx, key, audioURLTTL)
+	u, err := a.Objects.PresignGet(ctx, key, audioURLTTL)
 	if err != nil {
 		return "/v1/audio/" + messageID
 	}
@@ -251,17 +246,17 @@ func (a *API) audioURL(ctx context.Context, key, messageID string) string {
 // GET /v1/audio/{message_id} redirects to a presigned URL of the audio, or
 // streams it (with range support for seeking) when the store has no URLs.
 func (a *API) getAudio(w http.ResponseWriter, r *http.Request) {
-	msg, err := a.store.GetMessage(r.Context(), r.PathValue("message_id"))
+	msg, err := a.Store.GetMessage(r.Context(), r.PathValue("message_id"))
 	if err != nil || !msg.AudioKey.Valid {
 		a.fail(w, r, http.StatusNotFound, event.Wrap("There is no audio for that message.", err))
 		return
 	}
 	key := msg.AudioKey.String
-	if u, err := a.objects.PresignGet(r.Context(), key, audioURLTTL); err == nil {
+	if u, err := a.Objects.PresignGet(r.Context(), key, audioURLTTL); err == nil {
 		http.Redirect(w, r, u, http.StatusFound)
 		return
 	}
-	b, err := a.objects.Get(r.Context(), key)
+	b, err := a.Objects.Get(r.Context(), key)
 	if err != nil {
 		a.fail(w, r, http.StatusNotFound, event.Wrap("That audio file is no longer available.", err))
 		return
@@ -276,7 +271,7 @@ func (a *API) getAudio(w http.ResponseWriter, r *http.Request) {
 
 // fail logs the full cause and sends only the safe message plus the request id.
 func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, err error) {
-	log := logx.With(r.Context(), a.log)
+	log := logx.With(r.Context(), a.Log)
 	if status >= 500 {
 		log.Errorw("request failed", "status", status, "err", err)
 	} else {
@@ -300,6 +295,6 @@ func (a *API) writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		a.log.Warnw("write response failed", "err", err)
+		a.Log.Warnw("write response failed", "err", err)
 	}
 }

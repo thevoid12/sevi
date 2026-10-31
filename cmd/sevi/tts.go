@@ -7,22 +7,17 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-
-	"sevi/internal/config"
 	"sevi/internal/core"
 	"sevi/internal/event"
 	"sevi/internal/fetch"
-	"sevi/internal/objectstore"
-	"sevi/internal/store"
 )
 
 // runTTS is the CLI front end to Core: `sevi tts <url>` submits the link, prints
 // progress, copies the audio to output/<slug>.mp3 and writes a cost report.
 // A long blog asks for confirmation on stdin, like an adapter would.
-func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, st *store.Store, objects objectstore.Store, pageURL string) error {
-	c, err := newCore(cfg, sec, st, objects, log)
+func (a *app) runTTS(ctx context.Context, pageURL string) error {
+	cfg, st, objects := a.Cfg, a.Store, a.Objects
+	c, err := a.newCore()
 	if err != nil {
 		return err
 	}
@@ -77,7 +72,7 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec
 		}
 		fmt.Println("wrote", out)
 	}
-	return writeCostReport(ctx, st, cfg, view.SessionID, pageURL)
+	return a.writeCostReport(ctx, view.SessionID, pageURL)
 }
 
 // follow prints a job's events (those after seq `seen`) as they arrive and
@@ -108,7 +103,8 @@ func follow(ctx context.Context, job *core.Job, seen int) (core.JobView, int, er
 	}
 }
 
-func writeCostReport(ctx context.Context, st *store.Store, cfg *config.Config, sessionID, src string) error {
+func (a *app) writeCostReport(ctx context.Context, sessionID, src string) error {
+	cfg, st := a.Cfg, a.Store
 	sc, err := st.SessionCost(ctx, sessionID)
 	if err != nil {
 		return err

@@ -12,6 +12,7 @@ import (
 	"sevi/internal/event"
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
+	"sevi/internal/idle"
 	"sevi/internal/logx"
 	"sevi/internal/model"
 	"sevi/internal/objectstore"
@@ -96,7 +97,7 @@ func (c *Core) handleTurn(ctx, jobCtx context.Context, m Message, text string, v
 	if voice != nil {
 		voiceData = voice.Data
 	}
-	return c.start(jobCtx, sessionID, func(ctx context.Context, j *Job) error {
+	return c.start(jobCtx, sessionID, idle.TagAnswer, func(ctx context.Context, j *Job) error {
 		return c.turnJob(ctx, j, sessionID, userMsg, text, voiceData)
 	}), nil
 }

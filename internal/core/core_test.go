@@ -14,6 +14,7 @@ import (
 
 	"sevi/internal/event"
 	"sevi/internal/httpx"
+	"sevi/internal/model"
 	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
@@ -107,8 +108,8 @@ func TestLinksEndToEnd(t *testing.T) {
 				}},
 			}
 			c := New(Deps{
-				Cfg: cfg, Store: st, Objects: objectstore.Local{Root: dir + "/objects"}, Log: log,
-				TTS: tts, LLM: fakeLLM{}, Prices: prices,
+				Service: &model.Service{Cfg: cfg, Store: st, Objects: objectstore.Local{Root: dir + "/objects"}, Log: log},
+				TTS:     tts, LLM: fakeLLM{}, Prices: prices,
 				Markdown: func(_ context.Context, u string) (string, error) {
 					if u != tc.url {
 						t.Errorf("fetched %q, want %q", u, tc.url)

@@ -15,12 +15,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 
-	"sevi/internal/config"
 	"sevi/internal/event"
+	"sevi/internal/idle"
 	"sevi/internal/logx"
-	"sevi/internal/objectstore"
+	"sevi/internal/model"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
@@ -29,15 +28,12 @@ import (
 
 // Deps are everything Core needs from outside, so tests can fake the network.
 type Deps struct {
-	Cfg      *config.Config
-	Store    *store.Store
-	Objects  objectstore.Store
-	Log      *zap.SugaredLogger
-	TTS      provider.TTS
-	LLM      provider.LLM                                              // answers follow-ups; hears audio itself unless STT is set
-	STT      provider.LLM                                              // optional: when set, voice notes are transcribed by this first
-	Markdown func(ctx context.Context, pageURL string) (string, error) // page as markdown
-	Prices   *pricing.Book
+	*model.Service // config, secrets, store, object store, logger, activity
+	TTS            provider.TTS
+	LLM            provider.LLM                                              // answers follow-ups; hears audio itself unless STT is set
+	STT            provider.LLM                                              // optional: when set, voice notes are transcribed by this first
+	Markdown       func(ctx context.Context, pageURL string) (string, error) // page as markdown
+	Prices         *pricing.Book
 }
 
 type Core struct {
@@ -129,7 +125,7 @@ func (c *Core) Handle(ctx context.Context, m Message) (*Job, error) {
 			return nil, event.Wrap("Something went wrong on my side.", err)
 		}
 		log.Infow("blog request", "session", sess.ID, "url", pageURL, "user", m.User, "thread_ref", m.ThreadRef)
-		return c.start(jobCtx, sess.ID, func(ctx context.Context, j *Job) error {
+		return c.start(jobCtx, sess.ID, idle.TagBlog, func(ctx context.Context, j *Job) error {
 			return c.blogJob(ctx, j, sess.ID, pageURL, false)
 		}), nil
 	case voice != nil || text != "":
@@ -160,14 +156,14 @@ func (c *Core) handleConfirm(ctx, jobCtx context.Context, sessionID, decision st
 		if err := c.Store.ResolvePending(ctx, pend.ID, "confirmed"); err != nil {
 			return nil, event.Wrap("Something went wrong on my side.", err)
 		}
-		return c.start(jobCtx, sessionID, func(ctx context.Context, j *Job) error {
+		return c.start(jobCtx, sessionID, idle.TagBlog, func(ctx context.Context, j *Job) error {
 			return c.blogJob(ctx, j, sessionID, sess.Url.String, true)
 		}), nil
 	case "no":
 		if err := c.Store.ResolvePending(ctx, pend.ID, "cancelled"); err != nil {
 			return nil, event.Wrap("Something went wrong on my side.", err)
 		}
-		return c.start(jobCtx, sessionID, func(ctx context.Context, j *Job) error {
+		return c.start(jobCtx, sessionID, "", func(ctx context.Context, j *Job) error {
 			j.emit(event.Event{Kind: event.Notice, Message: "Okay, cancelled. Nothing was spent."})
 			j.setStatus(Done, nil)
 			return nil
@@ -177,10 +173,11 @@ func (c *Core) handleConfirm(ctx, jobCtx context.Context, sessionID, decision st
 	}
 }
 
-// start registers a job and runs fn in the background. A returned error is
+// start registers a job and runs fn in the background. tag says what a
+// successful run delivers (idle.TagBlog / idle.TagAnswer, or "" for nothing). A returned error is
 // logged in full (with the request id) and shown to the user as its safe
 // message plus a ref.
-func (c *Core) start(ctx context.Context, sessionID string, fn func(context.Context, *Job) error) *Job {
+func (c *Core) start(ctx context.Context, sessionID, tag string, fn func(context.Context, *Job) error) *Job {
 	j := newJob(uuid.NewString(), sessionID)
 	c.mu.Lock()
 	for id, old := range c.jobs {
@@ -191,6 +188,9 @@ func (c *Core) start(ctx context.Context, sessionID string, fn func(context.Cont
 	c.jobs[j.ID] = j
 	c.mu.Unlock()
 
+	if c.Activity != nil {
+		c.Activity.JobStarted()
+	}
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -200,8 +200,23 @@ func (c *Core) start(ctx context.Context, sessionID string, fn func(context.Cont
 			j.emit(event.Event{Kind: event.Error, Message: event.SafeMessage(err), Ref: reqid.From(ctx)})
 			j.setStatus(Failed, nil)
 		}
+		if c.Activity != nil {
+			c.Activity.JobEnded(endTag(j.Status(), tag))
+		}
 	}()
 	return j
+}
+
+// endTag is what a finished job delivered: its tag when it completed, a prompt
+// when it is waiting for a Yes/No, nothing when it failed.
+func endTag(s Status, tag string) string {
+	switch s {
+	case Done:
+		return tag
+	case NeedsConfirmation:
+		return idle.TagPrompt
+	}
+	return ""
 }
 
 // Job returns a job by id, or nil.

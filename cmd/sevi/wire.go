@@ -2,56 +2,44 @@ package main
 
 import (
 	"context"
-	"strings"
 	"time"
 
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-
-	"sevi/internal/config"
 	"sevi/internal/core"
 	"sevi/internal/fetch"
-	"sevi/internal/objectstore"
+	"sevi/internal/model"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
-	"sevi/internal/secrets"
-	"sevi/internal/store"
 )
 
-func baseURL(cfg *config.Config, provider string) string {
-	return cfg.GetString("providers." + provider + ".base_url")
-}
-
-// providerKey is the named provider's key; secrets.Require errors if it is not set.
-func providerKey(cfg *config.Config, sec *viper.Viper, name string) (string, error) {
-	return secrets.Require(sec, "providers."+name, strings.ToUpper(name)+"_API_KEY")
-}
-
-func optional(sec *viper.Viper, name string) string {
-	v, _ := secrets.Get(sec, name)
-	return v
+// app is the running program: the shared Service plus where its config came from.
+// Everything that used to take cfg, secrets, store, objects and log as separate
+// parameters is a method on it.
+type app struct {
+	*model.Service
+	cfgPath string
 }
 
 // newCore wires Core to the real providers described in config.
-func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, objects objectstore.Store, log *zap.SugaredLogger) (*core.Core, error) {
+func (a *app) newCore() (*core.Core, error) {
+	cfg, log := a.Cfg, a.Log
 	ttsName, llmName := cfg.GetString("models.tts.provider"), cfg.GetString("models.llm.provider")
-	ttsKey, err := providerKey(cfg, sec, ttsName)
+	ttsKey, err := a.ProviderKey(ttsName)
 	if err != nil {
 		return nil, err
 	}
-	llmKey, err := providerKey(cfg, sec, llmName)
+	llmKey, err := a.ProviderKey(llmName)
 	if err != nil {
 		return nil, err
 	}
-	ttsURL, llmURL := baseURL(cfg, ttsName), baseURL(cfg, llmName)
+	ttsURL, llmURL := a.BaseURL(ttsName), a.BaseURL(llmName)
 
 	jinaURL, jinaKey := "https://r.jina.ai", ""
 	if cfg.IsSet("providers.jina.base_url") {
-		jinaURL, jinaKey = baseURL(cfg, "jina"), optional(sec, "JINA_API_KEY")
+		jinaURL, jinaKey = a.BaseURL("jina"), a.OptionalSecret("JINA_API_KEY")
 	}
 
 	d := core.Deps{
-		Cfg: cfg, Store: st, Objects: objects, Log: log,
+		Service: a.Service,
 		TTS: &provider.OpenRouterTTS{
 			BaseURL: ttsURL, Key: ttsKey, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
 			Retries: cfg.GetInt("app.retries"), Log: log,
@@ -64,11 +52,11 @@ func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, objects obje
 	stt := cfg.IsSet("models.stt.provider")
 	if stt {
 		sttName := cfg.GetString("models.stt.provider")
-		sttKey, err := providerKey(cfg, sec, sttName)
+		sttKey, err := a.ProviderKey(sttName)
 		if err != nil {
 			return nil, err
 		}
-		d.STT = &provider.Retrying{LLM: provider.NewOpenAICompatLLM(baseURL(cfg, sttName), sttKey, cfg.GetString("models.stt.model"), 0), Retries: cfg.GetInt("app.retries"), Log: log}
+		d.STT = &provider.Retrying{LLM: provider.NewOpenAICompatLLM(a.BaseURL(sttName), sttKey, cfg.GetString("models.stt.model"), 0), Retries: cfg.GetInt("app.retries"), Log: log}
 	}
 
 	// Prices: one source and one charge-reporter per provider in use. Both are
@@ -78,7 +66,7 @@ func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, objects obje
 		ttl = 7 * 24 * time.Hour
 	}
 	book := &pricing.Book{
-		Store: st, TTL: ttl, Log: log,
+		Store: a.Store, TTL: ttl, Log: log,
 		Sources: map[string]pricing.Source{}, Reporter: map[string]pricing.Reporter{},
 	}
 	used := []string{ttsName, llmName}
@@ -86,8 +74,8 @@ func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, objects obje
 		used = append(used, cfg.GetString("models.stt.provider"))
 	}
 	for _, name := range used {
-		url := baseURL(cfg, name)
-		key, _ := providerKey(cfg, sec, name)
+		url := a.BaseURL(name)
+		key, _ := a.ProviderKey(name)
 		book.Sources[name] = func(ctx context.Context) (map[string]provider.Price, error) {
 			return provider.OpenRouterPrices(ctx, url)
 		}

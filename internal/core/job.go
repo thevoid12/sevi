@@ -79,6 +79,13 @@ func (j *Job) Changed() <-chan struct{} {
 	return j.changed
 }
 
+// Status is the job's current status.
+func (j *Job) Status() Status {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.status
+}
+
 func (j *Job) Terminal() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()

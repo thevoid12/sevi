@@ -28,6 +28,8 @@ import (
 //go:embed sql/migrations/*.sql
 var migrationFS embed.FS
 
+var _ model.Store = (*Store)(nil)
+
 type Store struct {
 	sql *sql.DB
 	q   *db.Queries
@@ -85,6 +87,10 @@ func pingWithRetry(ctx context.Context, conn *sql.DB, log *zap.SugaredLogger) er
 	}
 	return fmt.Errorf("connect to db: %w", err)
 }
+
+// Ping runs a trivial query: it checks the database is up and, on Neon, keeps
+// its compute awake.
+func (s *Store) Ping(ctx context.Context) error { return s.sql.PingContext(ctx) }
 
 func (s *Store) Close() error { return s.sql.Close() }
 

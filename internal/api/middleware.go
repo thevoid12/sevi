@@ -37,7 +37,7 @@ func (a *API) middleware(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(sw, r)
-		logx.With(r.Context(), a.log).Infow("http", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(start).Milliseconds())
+		logx.With(r.Context(), a.Log).Infow("http", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(start).Milliseconds())
 	})
 }
 
@@ -64,7 +64,7 @@ func (a *API) authenticate(next http.Handler) http.Handler {
 			if errors.Is(err, auth.ErrUnauthorized) {
 				reason = strings.TrimPrefix(reason, auth.ErrUnauthorized.Error()+": ")
 			}
-			logx.With(r.Context(), a.log).Warnw("refused an unauthenticated request", "reason", reason, "remote", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
+			logx.With(r.Context(), a.Log).Warnw("refused an unauthenticated request", "reason", reason, "remote", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sevi"`)
 			a.writeJSON(w, http.StatusUnauthorized, model.ErrorBody{Error: struct {
 				Message string `json:"message"`

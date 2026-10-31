@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -57,6 +58,7 @@ type Bot struct {
 	seenIDs map[int]struct{} // recent update ids, to drop Telegram's retries
 	seenOrd []int
 	wg      sync.WaitGroup
+	active  atomic.Int64 // updates being handled, from acknowledgement to the last message sent
 }
 
 func New(o Options, log *zap.SugaredLogger) (*Bot, error) {
@@ -121,14 +123,20 @@ func (b *Bot) Handler(ctx context.Context) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		b.active.Add(1) // before the ack, so there is no moment when the update is unaccounted for
 		w.WriteHeader(http.StatusOK)
 		b.wg.Add(1)
 		go func() {
 			defer b.wg.Done()
+			defer b.active.Add(-1)
 			b.handle(reqid.With(ctx, reqid.New()), u)
 		}()
 	})
 }
+
+// Active is how many updates are being handled right now (the hosting process
+// uses it to avoid exiting mid-conversation).
+func (b *Bot) Active() int { return int(b.active.Load()) }
 
 // Wait blocks until every update being handled has finished (or its ctx ended).
 func (b *Bot) Wait() { b.wg.Wait() }

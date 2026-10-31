@@ -18,14 +18,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-
 	"sevi/internal/adapter/telegram"
 	"sevi/internal/api"
 	"sevi/internal/auth"
 	"sevi/internal/config"
+	"sevi/internal/idle"
 	"sevi/internal/logx"
+	"sevi/internal/model"
 	"sevi/internal/objectstore"
 	"sevi/internal/reqid"
 	"sevi/internal/secrets"
@@ -71,13 +70,14 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	rlog.Infow("secrets loaded", "backend", backend.Kind())
-	if _, err := providerKey(cfg, sec, cfg.GetString("models.tts.provider")); err != nil {
+	a := &app{Service: &model.Service{Cfg: cfg, Sec: sec, Log: log}, cfgPath: cfgPath}
+	if _, err := a.ProviderKey(cfg.GetString("models.tts.provider")); err != nil {
 		rlog.Errorw("missing API key", "err", err)
 		return 1
 	}
 	if cfg.GetBool("telegram.enabled") {
 		for _, name := range []string{"TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"} {
-			if _, err := secrets.Require(sec, "telegram.enabled", name); err != nil {
+			if _, err := a.Secret("telegram.enabled", name); err != nil {
 				rlog.Errorw("missing Telegram secret", "err", err)
 				return 1
 			}
@@ -86,10 +86,10 @@ func run(cfgPath string, logTest bool, args []string) int {
 
 	// `sevi token <adapter>` prints a short-lived API token, for trying the API with curl.
 	if len(args) == 2 && args[0] == "token" {
-		return printToken(cfg, sec, args[1])
+		return a.printToken(args[1])
 	}
 
-	dbURL, err := secrets.Require(sec, "database", "DATABASE_URL")
+	dbURL, err := a.Secret("database", "DATABASE_URL")
 	if err != nil {
 		rlog.Errorw("missing database URL", "err", err)
 		return 1
@@ -100,11 +100,13 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	defer st.Close()
+	a.Store = st
 	objects, err := objectstore.FromSettings(cfg, sec)
 	if err != nil {
 		rlog.Errorw("object store setup failed", "err", err)
 		return 1
 	}
+	a.Objects = objects
 	rlog.Infow("object store ready", "backend", objects.Kind())
 
 	if len(args) > 0 {
@@ -112,21 +114,22 @@ func run(cfgPath string, logTest bool, args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter>]  (no command: run the server)")
 			return 2
 		}
-		if err := runTTS(ctx, log, cfg, sec, st, objects, args[1]); err != nil {
+		if err := a.runTTS(ctx, args[1]); err != nil {
 			rlog.Errorw("tts failed", "url", args[1], "err", err)
 			fmt.Fprintln(os.Stderr, "error:", err)
 			return 1
 		}
 		return 0
 	}
-	return serve(ctx, log, cfg, sec, cfgPath, st, objects)
+	return a.serve(ctx)
 }
 
 // serve runs the HTTP API (and the Telegram adapter, if enabled) until
 // interrupted, then drains running jobs.
-func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, cfgPath string, st *store.Store, objects objectstore.Store) int {
+func (a *app) serve(ctx context.Context) int {
+	cfg, log, st, cfgPath := a.Cfg, a.Log, a.Store, a.cfgPath
 	// Nobody but the configured adapters may call the API: no secrets, no start.
-	secret, err := secrets.Require(sec, "api", "SEVI_JWT_SECRET")
+	secret, err := a.Secret("api", "SEVI_JWT_SECRET")
 	if err != nil {
 		log.Errorw("the API secret is not set up", "err", err, "hint", "make one with: openssl rand -hex 32")
 		return 1
@@ -141,7 +144,13 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 			"hint", "use 127.0.0.1, or set api.allow_remote_listen if that is really intended")
 		return 1
 	}
-	c, err := newCore(cfg, sec, st, objects, log)
+	ctx, cancel := context.WithCancel(ctx) // cancelled by a signal or when the idle window ends
+	defer cancel()
+	idleMgr := a.newIdle()
+	if idleMgr != nil { // a nil *Manager must not become a non-nil Activity
+		a.Activity = idleMgr
+	}
+	c, err := a.newCore()
 	if err != nil {
 		log.Errorw("could not start core", "err", err)
 		return 1
@@ -156,11 +165,11 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 	// The Core API owns "/"; the Telegram adapter is just another client of it
 	// (over HTTP, with its own token) whose webhook is mounted beside it.
 	mux := http.NewServeMux()
-	mux.Handle("/", api.New(c, st, objects, log, verifier).Handler())
+	mux.Handle("/", api.New(a.Service, c, verifier).Handler())
 	var bot *telegram.Bot
 	if cfg.GetBool("telegram.enabled") {
-		token, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN")              // checked at startup
-		webhookSecret, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_WEBHOOK_SECRET") // checked at startup
+		token, _ := a.Secret("telegram.enabled", "TELEGRAM_BOT_TOKEN")              // checked at startup
+		webhookSecret, _ := a.Secret("telegram.enabled", "TELEGRAM_WEBHOOK_SECRET") // checked at startup
 		ttl := config.TokenTTL(cfg)
 		bot, err = telegram.New(telegram.Options{
 			Token:         token,
@@ -177,8 +186,23 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 			return 1
 		}
 		mux.Handle("/telegram", bot.Handler(ctx))
+		if idleMgr != nil {
+			idleMgr.SetBusy(func() bool { return bot.Active() > 0 })
+		}
 	}
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	var handler http.Handler = mux
+	if idleMgr != nil {
+		if webhookSecret := a.OptionalSecret("TELEGRAM_WEBHOOK_SECRET"); webhookSecret != "" {
+			var dbPing func(context.Context) error
+			if cfg.GetBool("idle.keepalive_db") {
+				dbPing = st.Ping
+			}
+			mux.Handle("/keepalive", idle.KeepaliveHandler(webhookSecret, dbPing))
+		}
+		handler = idleMgr.Wrap(mux)
+		go idleMgr.Run(ctx, cancel)
+	}
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	log.Infow("sevi started",
 		"config", cfgPath,
 		"listen", cfg.GetString("app.listen"),
@@ -227,12 +251,13 @@ func coreURL(addr net.Addr) string {
 // printToken mints a token for one adapter so the API can be tried with curl:
 //
 //	curl -H "Authorization: Bearer $(sevi token telegram)" localhost:8787/v1/...
-func printToken(cfg *config.Config, sec *viper.Viper, adapter string) int {
+func (a *app) printToken(adapter string) int {
+	cfg := a.Cfg
 	if !slices.Contains(cfg.GetStringSlice("api.adapters"), adapter) {
 		fmt.Fprintf(os.Stderr, "no adapter %q in api.adapters\n", adapter)
 		return 2
 	}
-	secret, err := secrets.Require(sec, "api", "SEVI_JWT_SECRET")
+	secret, err := a.Secret("api", "SEVI_JWT_SECRET")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1

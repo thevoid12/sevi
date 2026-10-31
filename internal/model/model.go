@@ -1,11 +1,20 @@
-// Package model holds every data type shared across packages in one place:
-// the database row types (aliases of the sqlc-generated ones, so the schema stays
-// the source of truth) and the plain structs passed to the store.
+// Package model holds every shared type in one place: the database row types
+// (aliases of the sqlc-generated ones, so the schema stays the source of truth),
+// the plain structs passed to the store, the API shapes, and Service, the bundle
+// of dependencies (config, secrets, store, object store, logger) that the rest
+// of the program takes in place of long parameter lists.
 package model
 
 import (
+	"context"
+	"strings"
 	"time"
 
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+
+	"sevi/internal/objectstore"
+	"sevi/internal/secrets"
 	"sevi/internal/store/db"
 )
 
@@ -100,4 +109,89 @@ type ErrorBody struct {
 		Message string `json:"message"`
 		Ref     string `json:"ref"`
 	} `json:"error"`
+}
+
+// Store is the persistence the program needs. *store.Store implements it; it is
+// an interface here so this package does not import the store package.
+type Store interface {
+	Ping(ctx context.Context) error
+	Close() error
+
+	CreateSession(ctx context.Context, kind, url string) (Session, error)
+	GetSession(ctx context.Context, id string) (Session, error)
+	SetSummary(ctx context.Context, sessionID, summary, throughMessageID string) error
+
+	AddMessage(ctx context.Context, m NewMessage) (Message, error)
+	GetMessage(ctx context.Context, id string) (Message, error)
+	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
+	SetMessageText(ctx context.Context, id, text string) error
+	SetMessageAudio(ctx context.Context, id, audioKey string) error
+
+	PutThread(ctx context.Context, adapter, threadRef, messageID string) error
+	MessageForThread(ctx context.Context, adapter, threadRef string) (Message, error)
+
+	AddPending(ctx context.Context, sessionID, kind, payload string) (Pending, error)
+	OpenPending(ctx context.Context, sessionID string) (Pending, error)
+	ResolvePending(ctx context.Context, id, status string) error
+
+	AddLedger(ctx context.Context, e LedgerEntry) (string, error)
+	SetLedgerUsage(ctx context.Context, id string, inTok, outTok int, costUSD float64) error
+	ListLedger(ctx context.Context, sessionID string) ([]LedgerRow, error)
+	SessionCost(ctx context.Context, sessionID string) (SessionCost, error)
+	LatestCostedCall(ctx context.Context, provider, modelName string) (LedgerRow, error)
+
+	GetPage(ctx context.Context, urlHash string) (Page, error)
+	PutPage(ctx context.Context, url, title, text string) error
+	GetAudio(ctx context.Context, urlHash, ttsModel, voice string) (CachedAudio, error)
+	PutAudio(ctx context.Context, urlHash, ttsModel, voice, audioKey string, seconds int) error
+
+	GetPrice(ctx context.Context, provider, modelName string) (ModelPrice, error)
+	PutPrice(ctx context.Context, provider, modelName string, p ModelPrice) error
+	PricedModels(ctx context.Context, provider string) ([]string, error)
+}
+
+// Activity lets the host know when work starts and what finished, so it can
+// decide when the process may exit. The tag says what was delivered (see
+// package idle); "" means nothing worth keeping the process up for.
+type Activity interface {
+	JobStarted()
+	JobEnded(tag string)
+}
+
+// Service is everything the program shares: config, secrets, the database, the
+// object store and the logger. Functions that used to take these one by one
+// take (or are methods on) a Service. Activity is nil when idle shutdown is off.
+type Service struct {
+	Cfg      *viper.Viper // config.json
+	Sec      *viper.Viper // secrets (see package secrets)
+	Store    Store
+	Objects  objectstore.Store
+	Log      *zap.SugaredLogger
+	Activity Activity
+}
+
+// Secret returns a required secret; the error names the field and the secret.
+func (s *Service) Secret(field, name string) (string, error) {
+	return secrets.Require(s.Sec, field, name)
+}
+
+// OptionalSecret returns a secret or "" when it is not set.
+func (s *Service) OptionalSecret(name string) string {
+	v, _ := secrets.Get(s.Sec, name)
+	return v
+}
+
+// ProviderKey is the API key of a provider, by convention <PROVIDER>_API_KEY.
+func (s *Service) ProviderKey(provider string) (string, error) {
+	return s.Secret("providers."+provider, strings.ToUpper(provider)+"_API_KEY")
+}
+
+// BaseURL is a provider's API base URL from config.
+func (s *Service) BaseURL(provider string) string {
+	return s.Cfg.GetString("providers." + provider + ".base_url")
+}
+
+// Minutes reads a config value in minutes as a duration.
+func (s *Service) Minutes(key string) time.Duration {
+	return time.Duration(s.Cfg.GetFloat64(key) * float64(time.Minute))
 }

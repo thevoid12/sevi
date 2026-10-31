@@ -41,6 +41,14 @@ func setDefaults(c *Config) {
 	c.SetDefault("models.tts.chars_per_minute", 950)
 	c.SetDefault("models.tts.audio_tokens_per_sec", 25)
 	c.SetDefault("cost.price_ttl_days", 7)
+	// Idle window (package idle): minutes. Used only when app.dev is false.
+	c.SetDefault("idle.initial_min", 2)
+	c.SetDefault("idle.blog_min", 6)
+	c.SetDefault("idle.first_answer_min", 10)
+	c.SetDefault("idle.extend_min", 5)
+	c.SetDefault("idle.cap_min", 90)
+	c.SetDefault("idle.keepalive_min", 5)
+	c.SetDefault("idle.keepalive_db", false)
 }
 
 // TokenTTL is how long a minted API token lives.

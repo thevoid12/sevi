@@ -28,7 +28,7 @@ type Source func(ctx context.Context) (map[string]provider.Price, error)
 type Reporter func(ctx context.Context, generationID string) (provider.Usage, error)
 
 type Book struct {
-	Store    *store.Store
+	Store    model.Store
 	Sources  map[string]Source   // by provider name
 	Reporter map[string]Reporter // by provider name; optional
 	TTL      time.Duration
