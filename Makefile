@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f localdb/docker-compose.yml
 
-.PHONY: gcp_log_retention build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
+.PHONY: gateway_spec gcp_log_retention build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
 
 # Start local Postgres and wait until it is healthy.
 docker_db_up:
@@ -33,3 +33,11 @@ docker_build: build_linux
 # Usage: make gcp_log_retention PROJECT=my-project
 gcp_log_retention:
 	gcloud logging buckets update _Default --location=global --retention-days=7 --project=$(PROJECT)
+
+# Render the API Gateway spec with the real Cloud Run URL (no trailing slash).
+# Usage: make gateway_spec CLOUD_RUN_URL=https://sevi-xxxx-uc.a.run.app
+gateway_spec:
+	@test -n "$(CLOUD_RUN_URL)" || (echo "set CLOUD_RUN_URL=https://..." && exit 1)
+	@mkdir -p bin
+	sed 's|CLOUD_RUN_URL|$(CLOUD_RUN_URL)|g' deploy/openapi.yaml > bin/openapi.rendered.yaml
+	@echo wrote bin/openapi.rendered.yaml

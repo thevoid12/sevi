@@ -1,0 +1,78 @@
+# API Gateway config for sevi (Google API Gateway reads OpenAPI 2.0).
+#
+# Only two paths are public, both guarded by an API key in the `key` query
+# parameter: the gateway rejects a missing or wrong key itself, so Cloud Run is
+# never contacted and no instance starts. Everything else (the /v1 Core API) is
+# not listed, so the gateway answers 404 for it. The gateway calls Cloud Run with
+# its own service account's ID token, so the service stays --no-allow-unauthenticated.
+#
+# CLOUD_RUN_URL below is a placeholder; `make gateway_spec CLOUD_RUN_URL=https://...`
+# renders bin/openapi.rendered.yaml with the real URL. One-time setup:
+#
+#   gcloud services enable apigateway.googleapis.com servicemanagement.googleapis.com servicecontrol.googleapis.com
+#   gcloud api-gateway apis create sevi
+#   gcloud api-gateway api-configs create sevi-v1 --api=sevi \
+#       --openapi-spec=bin/openapi.rendered.yaml --backend-auth-service-account=GATEWAY_SA_EMAIL
+#   gcloud api-gateway gateways create sevi --api=sevi --api-config=sevi-v1 --location=REGION
+#   gcloud services api-keys create --display-name=sevi-telegram \
+#       --api-target=service=MANAGED_SERVICE_NAME   # restrict the key to this API
+#
+# GATEWAY_SA_EMAIL needs only roles/run.invoker on the Cloud Run service.
+# Telegram's `X-Telegram-Bot-Api-Secret-Token` header passes through untouched;
+# sevi checks it (a second lock if the key ever leaks).
+swagger: "2.0"
+info:
+  title: sevi
+  description: Telegram webhook and keep-warm ping for sevi.
+  version: "1.0.0"
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+
+securityDefinitions:
+  api_key:
+    type: apiKey
+    name: key
+    in: query
+
+paths:
+  /telegram:
+    post:
+      operationId: telegramWebhook
+      summary: Telegram delivers one update per request.
+      security:
+        - api_key: []
+      x-google-backend:
+        address: CLOUD_RUN_URL
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 30.0 # sevi answers 200 in milliseconds; this only covers a cold start
+      parameters:
+        - in: body
+          name: update
+          required: true
+          schema:
+            type: object
+      responses:
+        "200":
+          description: "Update accepted (or ignored: a repeat, or a user not on the allowlist)."
+        "403":
+          description: Wrong secret header.
+
+  /keepalive:
+    post:
+      operationId: keepalive
+      summary: Keep-warm ping sent by sevi to itself while a conversation is open.
+      security:
+        - api_key: []
+      x-google-backend:
+        address: CLOUD_RUN_URL
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 30.0 # allows for the database waking from suspension
+      responses:
+        "204":
+          description: Alive.
+        "403":
+          description: Wrong secret header.
