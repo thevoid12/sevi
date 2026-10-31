@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"syscall"
 	"time"
@@ -25,9 +24,9 @@ import (
 	"sevi/internal/adapter/telegram"
 	"sevi/internal/api"
 	"sevi/internal/auth"
-	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/logx"
+	"sevi/internal/objectstore"
 	"sevi/internal/reqid"
 	"sevi/internal/secrets"
 	"sevi/internal/store"
@@ -99,26 +98,31 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	defer st.Close()
-	bl := blob.Disk{Root: filepath.Join(cfg.GetString("app.data_dir"), "blobs")}
+	objects, err := objectstore.FromSettings(cfg, sec)
+	if err != nil {
+		rlog.Errorw("object store setup failed", "err", err)
+		return 1
+	}
+	rlog.Infow("object store ready", "backend", objects.Kind())
 
 	if len(args) > 0 {
 		if args[0] != "tts" || len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter>]  (no command: run the server)")
 			return 2
 		}
-		if err := runTTS(ctx, log, cfg, sec, st, bl, args[1]); err != nil {
+		if err := runTTS(ctx, log, cfg, sec, st, objects, args[1]); err != nil {
 			rlog.Errorw("tts failed", "url", args[1], "err", err)
 			fmt.Fprintln(os.Stderr, "error:", err)
 			return 1
 		}
 		return 0
 	}
-	return serve(ctx, log, cfg, sec, cfgPath, st, bl)
+	return serve(ctx, log, cfg, sec, cfgPath, st, objects)
 }
 
 // serve runs the HTTP API (and the Telegram adapter, if enabled) until
 // interrupted, then drains running jobs.
-func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, cfgPath string, st *store.Store, bl blob.Store) int {
+func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, cfgPath string, st *store.Store, objects objectstore.Store) int {
 	// Nobody but the configured adapters may call the API: no secrets, no start.
 	secret, err := secrets.Require(sec, "api", "SEVI_JWT_SECRET")
 	if err != nil {
@@ -135,7 +139,7 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 			"hint", "use 127.0.0.1, or set api.allow_remote_listen if that is really intended")
 		return 1
 	}
-	c, err := newCore(cfg, sec, st, bl, log)
+	c, err := newCore(cfg, sec, st, objects, log)
 	if err != nil {
 		log.Errorw("could not start core", "err", err)
 		return 1
@@ -148,7 +152,7 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 		return 1
 	}
 	srv := &http.Server{
-		Handler:           api.New(c, st, bl, log, verifier).Handler(),
+		Handler:           api.New(c, st, objects, log, verifier).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Infow("sevi started",

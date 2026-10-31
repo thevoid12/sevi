@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/core"
 	"sevi/internal/fetch"
+	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/secrets"
@@ -33,7 +33,7 @@ func optional(sec *viper.Viper, name string) string {
 }
 
 // newCore wires Core to the real providers described in config.
-func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, bl blob.Store, log *zap.SugaredLogger) (*core.Core, error) {
+func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, objects objectstore.Store, log *zap.SugaredLogger) (*core.Core, error) {
 	ttsName, llmName := cfg.GetString("models.tts.provider"), cfg.GetString("models.llm.provider")
 	ttsKey, err := providerKey(cfg, sec, ttsName)
 	if err != nil {
@@ -51,7 +51,7 @@ func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, bl blob.Stor
 	}
 
 	d := core.Deps{
-		Cfg: cfg, Store: st, Blob: bl, Log: log,
+		Cfg: cfg, Store: st, Objects: objects, Log: log,
 		TTS: &provider.OpenRouterTTS{
 			BaseURL: ttsURL, Key: ttsKey, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
 			Retries: cfg.GetInt("app.retries"), Log: log,

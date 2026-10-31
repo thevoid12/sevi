@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"sevi/internal/blob"
 	"sevi/internal/event"
 	"sevi/internal/httpx"
+	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
@@ -46,7 +46,7 @@ func page(title string, n int) string {
 	return "Title: " + title + "\n\nMarkdown Content:\n" + strings.Repeat("This is a sentence that will be read aloud. ", n/44)
 }
 
-// TestLinksEndToEnd drives real Core, store, blob and ffmpeg with only the
+// TestLinksEndToEnd drives real Core, store, object store and ffmpeg with only the
 // network faked (page fetch, TTS, prices). One row per kind of link.
 func TestLinksEndToEnd(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -107,7 +107,7 @@ func TestLinksEndToEnd(t *testing.T) {
 				}},
 			}
 			c := New(Deps{
-				Cfg: cfg, Store: st, Blob: blob.Disk{Root: dir + "/blobs"}, Log: log,
+				Cfg: cfg, Store: st, Objects: objectstore.Local{Root: dir + "/objects"}, Log: log,
 				TTS: tts, LLM: fakeLLM{}, Prices: prices,
 				Markdown: func(_ context.Context, u string) (string, error) {
 					if u != tc.url {

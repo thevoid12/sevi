@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/event"
 	"sevi/internal/logx"
+	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/reqid"
@@ -31,7 +31,7 @@ import (
 type Deps struct {
 	Cfg      *config.Config
 	Store    *store.Store
-	Blob     blob.Store
+	Objects  objectstore.Store
 	Log      *zap.SugaredLogger
 	TTS      provider.TTS
 	LLM      provider.LLM                                              // answers follow-ups; hears audio itself unless STT is set

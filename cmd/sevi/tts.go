@@ -10,19 +10,19 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"sevi/internal/blob"
 	"sevi/internal/config"
 	"sevi/internal/core"
 	"sevi/internal/event"
 	"sevi/internal/fetch"
+	"sevi/internal/objectstore"
 	"sevi/internal/store"
 )
 
 // runTTS is the CLI front end to Core: `sevi tts <url>` submits the link, prints
 // progress, copies the audio to output/<slug>.mp3 and writes a cost report.
 // A long blog asks for confirmation on stdin, like an adapter would.
-func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, st *store.Store, bl blob.Store, pageURL string) error {
-	c, err := newCore(cfg, sec, st, bl, log)
+func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, st *store.Store, objects objectstore.Store, pageURL string) error {
+	c, err := newCore(cfg, sec, st, objects, log)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func runTTS(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec
 		if err != nil {
 			return err
 		}
-		mp3, err := bl.Get(ctx, msg.AudioKey.String)
+		mp3, err := objects.Get(ctx, msg.AudioKey.String)
 		if err != nil {
 			return err
 		}

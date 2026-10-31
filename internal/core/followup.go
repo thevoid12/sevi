@@ -14,6 +14,7 @@ import (
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
 	"sevi/internal/model"
+	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/store"
@@ -76,8 +77,8 @@ func (c *Core) handleTurn(ctx, jobCtx context.Context, m Message, text string, v
 		return nil, internal(err)
 	}
 	if voice != nil {
-		key := "user/" + userMsg.ID + audioExt(voice.Mime)
-		if err := c.Blob.Put(ctx, key, voice.Data); err != nil {
+		key := objectstore.Key(audioExt(voice.Mime))
+		if err := c.Objects.Put(ctx, key, voice.Data, voice.Mime); err != nil {
 			return nil, internal(err)
 		}
 		if err := c.Store.SetMessageAudio(ctx, userMsg.ID, key); err != nil {
@@ -252,8 +253,8 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg mo
 	if err != nil {
 		return event.Wrap("I couldn't encode the answer audio.", err)
 	}
-	key := "answer/" + userMsg.ID + ".ogg"
-	if err := c.Blob.Put(ctx, key, ogg); err != nil {
+	key := objectstore.Key(".ogg")
+	if err := c.Objects.Put(ctx, key, ogg, "audio/ogg"); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 	msg, err := c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", Text: r.Answer, AudioKey: key, ParentID: userMsg.ID, Format: "voice"})

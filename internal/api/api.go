@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,25 +16,29 @@ import (
 	"go.uber.org/zap"
 
 	"sevi/internal/auth"
-	"sevi/internal/blob"
 	"sevi/internal/core"
 	"sevi/internal/event"
 	"sevi/internal/logx"
 	"sevi/internal/model"
+	"sevi/internal/objectstore"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
 )
 
+// audioURLTTL is how long a presigned audio link stays valid. Links are made
+// fresh on every read, so this only has to outlast one listening session.
+const audioURLTTL = 12 * time.Hour
+
 type API struct {
 	core     *core.Core
 	store    *store.Store
-	blob     blob.Store
+	objects  objectstore.Store
 	log      *zap.SugaredLogger
 	verifier *auth.Verifier
 }
 
-func New(c *core.Core, st *store.Store, bl blob.Store, log *zap.SugaredLogger, v *auth.Verifier) *API {
-	return &API{core: c, store: st, blob: bl, log: log, verifier: v}
+func New(c *core.Core, st *store.Store, objects objectstore.Store, log *zap.SugaredLogger, v *auth.Verifier) *API {
+	return &API{core: c, store: st, objects: objects, log: log, verifier: v}
 }
 
 // Handler returns the routes wrapped in request-id, access-log and authentication
@@ -160,7 +165,7 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 	for _, m := range msgs {
 		mv := model.MessageView{ID: m.ID, ParentID: m.ParentID.String, Role: m.Role, Format: m.Format.String, Text: m.Text.String, CreatedOn: m.CreatedOn}
 		if m.AudioKey.Valid {
-			mv.AudioURL = "/v1/audio/" + m.ID
+			mv.AudioURL = a.audioURL(ctx, m.AudioKey.String, m.ID)
 		}
 		v.Messages = append(v.Messages, mv)
 	}
@@ -233,20 +238,36 @@ func (a *API) postThread(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GET /v1/audio/{message_id} streams the MP3 (supports range requests for seeking).
+// audioURL is a presigned link to the stored audio, made on demand (signing is
+// local and free). Stores that cannot sign get the API's own streaming route.
+func (a *API) audioURL(ctx context.Context, key, messageID string) string {
+	u, err := a.objects.PresignGet(ctx, key, audioURLTTL)
+	if err != nil {
+		return "/v1/audio/" + messageID
+	}
+	return u
+}
+
+// GET /v1/audio/{message_id} redirects to a presigned URL of the audio, or
+// streams it (with range support for seeking) when the store has no URLs.
 func (a *API) getAudio(w http.ResponseWriter, r *http.Request) {
 	msg, err := a.store.GetMessage(r.Context(), r.PathValue("message_id"))
 	if err != nil || !msg.AudioKey.Valid {
 		a.fail(w, r, http.StatusNotFound, event.Wrap("There is no audio for that message.", err))
 		return
 	}
-	b, err := a.blob.Get(r.Context(), msg.AudioKey.String)
+	key := msg.AudioKey.String
+	if u, err := a.objects.PresignGet(r.Context(), key, audioURLTTL); err == nil {
+		http.Redirect(w, r, u, http.StatusFound)
+		return
+	}
+	b, err := a.objects.Get(r.Context(), key)
 	if err != nil {
 		a.fail(w, r, http.StatusNotFound, event.Wrap("That audio file is no longer available.", err))
 		return
 	}
 	mime := "audio/mpeg"
-	if strings.HasSuffix(msg.AudioKey.String, ".ogg") {
+	if strings.HasSuffix(key, ".ogg") {
 		mime = "audio/ogg"
 	}
 	w.Header().Set("Content-Type", mime)

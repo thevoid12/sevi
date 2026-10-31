@@ -7,12 +7,12 @@ import (
 	"fmt"
 
 	"sevi/internal/audio"
-	"sevi/internal/blob"
 	"sevi/internal/event"
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
 	"sevi/internal/model"
+	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
 	"sevi/internal/provider"
 	"sevi/internal/store"
@@ -30,7 +30,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 
 	// If the same blog is already being spoken, wait for it and reuse its audio
 	// instead of paying for it twice.
-	release, err := c.blogLocks.acquire(ctx, audioKeyFor(hash, ttsModel, ttsVoice), func() {
+	release, err := c.blogLocks.acquire(ctx, cacheLockKey(hash, ttsModel, ttsVoice), func() {
 		log.Infow("same blog is already being made, waiting for it", "url", pageURL)
 		j.progress("That one is already being made. Waiting for it…", 0, 0)
 	})
@@ -41,7 +41,9 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 
 	// A re-shared link with the same voice settings costs nothing.
 	if ca, err := c.Store.GetAudio(ctx, hash, ttsModel, ttsVoice); err == nil {
-		if _, err := c.Blob.Get(ctx, ca.AudioKey); err == nil {
+		if have, err := c.Objects.Exists(ctx, ca.AudioKey); err != nil {
+			return event.Wrap("Something went wrong on my side.", err)
+		} else if have {
 			title := ""
 			if p, err := c.Store.GetPage(ctx, hash); err == nil {
 				title = p.Title.String
@@ -56,8 +58,6 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			j.emit(event.Event{Kind: event.Cost, Message: "Cost $0.00", CostUSD: &zero})
 			j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: int(ca.Seconds), Title: title, Mime: "audio/mpeg", CostUSD: &zero}})
 			return nil
-		} else if !errors.Is(err, blob.ErrNotFound) {
-			return event.Wrap("Something went wrong on my side.", err)
 		}
 		log.Warnw("audio cache row points at a missing file, regenerating", "key", ca.AudioKey)
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -108,8 +108,8 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		return event.Wrap("I couldn't encode the audio (is ffmpeg installed?).", err)
 	}
 	seconds := int(audio.Duration(all))
-	audioKey := audioKeyFor(hash, ttsModel, ttsVoice)
-	if err := c.Blob.Put(ctx, audioKey, mp3); err != nil {
+	audioKey := objectstore.Key(".mp3")
+	if err := c.Objects.Put(ctx, audioKey, mp3, "audio/mpeg"); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 	if err := c.Store.PutAudio(ctx, hash, ttsModel, ttsVoice, audioKey, seconds); err != nil {
@@ -190,18 +190,22 @@ func (c *Core) savePartial(ctx context.Context, sessionID string, pcm [][]byte) 
 		return
 	}
 	log := logx.With(ctx, c.Log).With("session", sessionID)
+	var key string
 	mp3, err := audio.EncodeMP3(ctx, audio.Stitch(pcm))
 	if err == nil {
-		err = c.Blob.Put(ctx, "partial/"+sessionID+".mp3", mp3)
+		key = objectstore.Key(".mp3")
+		err = c.Objects.Put(ctx, key, mp3, "audio/mpeg")
 	}
 	if err != nil {
 		log.Errorw("could not save partial audio", "err", err)
 		return
 	}
-	log.Infow("partial audio kept", "key", "partial/"+sessionID+".mp3", "chunks_done", len(pcm))
+	log.Infow("partial audio kept", "key", key, "chunks_done", len(pcm))
 }
 
-func audioKeyFor(hash, model, voice string) string {
+// cacheLockKey identifies one blog + voice settings, so two requests for the
+// same audio wait on each other. It is not an object key (those are timestamps).
+func cacheLockKey(hash, model, voice string) string {
 	v := sha256.Sum256([]byte(model + "|" + voice))
 	return fmt.Sprintf("audio/%s-%x.mp3", hash[:16], v[:4])
 }
