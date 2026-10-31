@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -23,7 +24,7 @@ func baseURL(cfg *config.Config, provider string) string {
 
 // providerKey is the named provider's key; secrets.Require errors if it is not set.
 func providerKey(cfg *config.Config, sec *viper.Viper, name string) (string, error) {
-	return secrets.Require(sec, "providers."+name+".key_env", cfg.GetString("providers."+name+".key_env"))
+	return secrets.Require(sec, "providers."+name, strings.ToUpper(name)+"_API_KEY")
 }
 
 func optional(sec *viper.Viper, name string) string {
@@ -46,7 +47,7 @@ func newCore(cfg *config.Config, sec *viper.Viper, st *store.Store, bl blob.Stor
 
 	jinaURL, jinaKey := "https://r.jina.ai", ""
 	if cfg.IsSet("providers.jina.base_url") {
-		jinaURL, jinaKey = baseURL(cfg, "jina"), optional(sec, cfg.GetString("providers.jina.key_env"))
+		jinaURL, jinaKey = baseURL(cfg, "jina"), optional(sec, "JINA_API_KEY")
 	}
 
 	d := core.Deps{

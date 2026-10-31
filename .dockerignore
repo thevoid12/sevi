@@ -1,0 +1,13 @@
+.git
+.gitignore
+.claude
+secret.json
+.env
+config.json
+data
+logs
+output
+design
+localdb
+Makefile
+*.md

@@ -4,3 +4,5 @@ config.json
 logs/
 data/
 .env
+bin/
+config.prod.json

@@ -2,14 +2,15 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"sevi/internal/secrets"
 )
 
-// secret_sample.json is the source of truth for secret names: every name the
-// example config points at must exist there.
-func TestSampleCoversExampleConfig(t *testing.T) {
+// secret_sample.json is the single list of secrets: it must hold every name the
+// code reads, including the key of each provider in config.example.json.
+func TestSampleHoldsEverySecretTheCodeReads(t *testing.T) {
 	cfg, err := Load("../../config.example.json")
 	if err != nil {
 		t.Fatal(err)
@@ -22,9 +23,9 @@ func TestSampleCoversExampleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := []string{cfg.GetString("api.secret_env"), cfg.GetString("telegram.bot_token_env")}
+	names := []string{"DATABASE_URL", "SEVI_JWT_SECRET", "TELEGRAM_BOT_TOKEN"}
 	for name := range cfg.GetStringMap("providers") {
-		names = append(names, cfg.GetString("providers."+name+".key_env"))
+		names = append(names, strings.ToUpper(name)+"_API_KEY")
 	}
 	for _, n := range names {
 		if !secrets.Has(s, n) {

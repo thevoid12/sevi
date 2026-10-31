@@ -77,7 +77,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	if cfg.GetBool("telegram.enabled") {
-		if _, err := secrets.Require(sec, "telegram.bot_token_env", cfg.GetString("telegram.bot_token_env")); err != nil {
+		if _, err := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN"); err != nil {
 			rlog.Errorw("missing Telegram token", "err", err)
 			return 1
 		}
@@ -88,7 +88,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return printToken(cfg, sec, args[1])
 	}
 
-	dbURL, err := secrets.Require(sec, "database.url_env", cfg.GetString("database.url_env"))
+	dbURL, err := secrets.Require(sec, "database", "DATABASE_URL")
 	if err != nil {
 		rlog.Errorw("missing database URL", "err", err)
 		return 1
@@ -120,7 +120,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 // interrupted, then drains running jobs.
 func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec *viper.Viper, cfgPath string, st *store.Store, bl blob.Store) int {
 	// Nobody but the configured adapters may call the API: no secrets, no start.
-	secret, err := secrets.Require(sec, "api.secret_env", cfg.GetString("api.secret_env"))
+	secret, err := secrets.Require(sec, "api", "SEVI_JWT_SECRET")
 	if err != nil {
 		log.Errorw("the API secret is not set up", "err", err, "hint", "make one with: openssl rand -hex 32")
 		return 1
@@ -166,7 +166,7 @@ func serve(ctx context.Context, log *zap.SugaredLogger, cfg *config.Config, sec 
 
 	var tgDone chan struct{}
 	if cfg.GetBool("telegram.enabled") {
-		token, _ := secrets.Require(sec, "telegram.bot_token_env", cfg.GetString("telegram.bot_token_env")) // checked at startup
+		token, _ := secrets.Require(sec, "telegram.enabled", "TELEGRAM_BOT_TOKEN") // checked at startup
 		bot := telegram.New(telegram.Options{
 			Token:      token,
 			AllowedIDs: config.AllowedUserIDs(cfg),
@@ -219,7 +219,7 @@ func printToken(cfg *config.Config, sec *viper.Viper, adapter string) int {
 		fmt.Fprintf(os.Stderr, "no adapter %q in api.adapters\n", adapter)
 		return 2
 	}
-	secret, err := secrets.Require(sec, "api.secret_env", cfg.GetString("api.secret_env"))
+	secret, err := secrets.Require(sec, "api", "SEVI_JWT_SECRET")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1

@@ -135,3 +135,4 @@ Cloud Run only counts requests in progress when deciding an instance is busy; co
 5. Idle manager: after a 10-minute blog, instance stays up ~20 minutes with pings in the logs (and Neon stays awake if `keepalive_db` is on), then exits with no Cloud Run error. Follow-ups step the window down. Cap holds at 90 minutes.
 6. Scale to zero, then send a follow-up: cold start, history intact from Neon.
 7. Kill switch: trigger the function manually on a test project and confirm billing is disabled.
+8. we will put the audio url after uploading it into r2 which will reduce db size,helps in web app as well as r2 is free for our scale
