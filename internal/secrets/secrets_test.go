@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -63,5 +64,18 @@ func TestFromSettings(t *testing.T) {
 	s.Set("secrets.name", "projects/p/secrets/s/versions/latest")
 	if st, err := FromSettings(s); err != nil || st.Kind() != "gcp" {
 		t.Fatalf("prod: %v %v", st, err)
+	}
+}
+
+func TestSecretsNameFromEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.json")
+	os.WriteFile(p, []byte(`{"app":{"dev":false}}`), 0o600)
+	t.Setenv("SEVI_SECRETS_NAME", "projects/p/secrets/sevi/versions/latest")
+	// The backend is built from settings before any network call; Open then tries
+	// to load, which fails without credentials, but the error names the secret.
+	_, _, err := Open(context.Background(), p)
+	if err == nil || !strings.Contains(err.Error(), "gcp secrets") {
+		t.Fatalf("want a gcp secrets error, got %v", err)
 	}
 }

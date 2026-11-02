@@ -1,0 +1,25 @@
+# Shape of Pulumi.prod.yaml (git-ignored). Pulumi never reads this file.
+# Do not copy it as is: a `secure:` value is encrypted with your stack's own
+# passphrase, so set each secret with `pulumi config set --secret <key> <value>`
+# and Pulumi writes the real encrypted text (and encryptionsalt) for you.
+config:
+  sevi:projectId: sevi-prod-123456          # new GCP project id (globally unique)
+  sevi:billingAccount: XXXXXX-XXXXXX-XXXXXX # gcloud billing accounts list
+  sevi:cloudflareAccountId: 0123456789abcdef0123456789abcdef
+  sevi:region: us-central1                  # API Gateway must offer the region
+  sevi:r2Location: enam                     # wnam, enam, weur, eeur, apac
+  sevi:logRetentionDays: "7"
+  cloudflare:apiToken:                      # Account / Workers R2 Storage: Edit, API Tokens: Edit
+    secure: set-with-pulumi-config-set-secret
+  sevi:openrouterApiKey:
+    secure: set-with-pulumi-config-set-secret
+  sevi:telegramBotToken:
+    secure: set-with-pulumi-config-set-secret
+  sevi:jinaApiKey:                          # optional
+    secure: set-with-pulumi-config-set-secret
+  sevi:databaseUrl:                         # Neon connection string (deploy/neon.json, DATABASE_URL)
+    secure: set-with-pulumi-config-set-secret
+  gcp:userProjectOverride: "true"           # first-run fixes for the Google provider
+  gcp:billingProject: sevi-prod-123456      # same as projectId
+  gcp:disableGlobalProjectWarning: "true"
+encryptionsalt: set-by-pulumi-stack-init

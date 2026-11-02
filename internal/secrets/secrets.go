@@ -93,6 +93,9 @@ func Open(ctx context.Context, configPath string) (Store, *viper.Viper, error) {
 	if err := s.ReadConfig(bytes.NewReader(b)); err != nil {
 		return nil, nil, fmt.Errorf("parse config %s: %w", configPath, err)
 	}
+	// The deploy (Pulumi) knows the project, so it passes the secret's name in the
+	// environment instead of baking it into the image's config file.
+	_ = s.BindEnv("secrets.name", "SEVI_SECRETS_NAME")
 	st, err := FromSettings(s)
 	if err != nil {
 		return nil, nil, err

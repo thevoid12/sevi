@@ -1,13 +1,6 @@
-.git
-.gitignore
-.claude
-secret.json
-.env
-config.json
-data
-logs
-output
-design
-localdb
-Makefile
-*.md
+# Allowlist: the image needs only the prebuilt binary and the prod config.
+# Everything else (docs, code, deploy/, tests) stays out of the build context,
+# so changing it never rebuilds or re-pushes the image.
+*
+!bin/sevi
+!config.prod.json

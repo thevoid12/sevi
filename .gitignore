@@ -6,3 +6,7 @@ data/
 .env
 bin/
 config.prod.json
+deploy/Pulumi.*.yaml
+!deploy/Pulumi.example.yaml
+deploy/neon.json
+deploy/.passphrase

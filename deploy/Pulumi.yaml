@@ -1,0 +1,4 @@
+name: sevi
+description: Infrastructure for sevi (Cloud Run, API Gateway, Secret Manager, R2)
+runtime:
+  name: go

@@ -1,6 +1,8 @@
 COMPOSE = docker compose -f localdb/docker-compose.yml
+# deploy/setup.sh stores the Pulumi passphrase here, so the targets below never prompt for it.
+PULUMI_ENV = PATH="$$HOME/.pulumi/bin:$$PATH" PULUMI_CONFIG_PASSPHRASE_FILE="$$PWD/.passphrase"
 
-.PHONY: gateway_spec gcp_log_retention build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
+.PHONY: infra_check infra_preview infra_up infra_destroy build_linux docker_build docker_db_up docker_db_down docker_db_logs docker_db_psql docker_db_reset
 
 # Start local Postgres and wait until it is healthy.
 docker_db_up:
@@ -29,15 +31,17 @@ build_linux:
 docker_build: build_linux
 	docker build -t sevi:local .
 
-# Keep Cloud Logging's default bucket for 7 days (shorter than the 30-day default, so never billed).
-# Usage: make gcp_log_retention PROJECT=my-project
-gcp_log_retention:
-	gcloud logging buckets update _Default --location=global --retention-days=7 --project=$(PROJECT)
+# Infrastructure (Pulumi, see deploy/README.md). infra_up builds the binary first
+# because the image copies bin/sevi.
+# Stop early, with a clear message, if deploy/setup.sh has not been run.
+infra_check:
+	@test -s deploy/.passphrase || (echo "Run deploy/setup.sh first (it logs in to Pulumi and sets the config)." && exit 1)
 
-# Render the API Gateway spec with the real Cloud Run URL (no trailing slash).
-# Usage: make gateway_spec CLOUD_RUN_URL=https://sevi-xxxx-uc.a.run.app
-gateway_spec:
-	@test -n "$(CLOUD_RUN_URL)" || (echo "set CLOUD_RUN_URL=https://..." && exit 1)
-	@mkdir -p bin
-	sed 's|CLOUD_RUN_URL|$(CLOUD_RUN_URL)|g' deploy/openapi.yaml > bin/openapi.rendered.yaml
-	@echo wrote bin/openapi.rendered.yaml
+infra_preview: infra_check build_linux
+	cd deploy && $(PULUMI_ENV) pulumi preview
+
+infra_up: infra_check build_linux
+	cd deploy && $(PULUMI_ENV) pulumi up
+
+infra_destroy: infra_check
+	cd deploy && $(PULUMI_ENV) pulumi destroy

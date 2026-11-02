@@ -64,13 +64,20 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 0
 	}
 
+	a := &app{Service: &model.Service{Cfg: cfg, Log: log}, cfgPath: cfgPath}
+
+	// `sevi migrate` applies the database schema and exits (the deploy runs it once).
+	if len(args) == 1 && args[0] == "migrate" {
+		return a.migrateCmd(ctx)
+	}
+
 	backend, sec, err := secrets.Open(ctx, cfgPath)
 	if err != nil {
 		rlog.Errorw("load secrets failed", "err", err)
 		return 1
 	}
+	a.Sec = sec
 	rlog.Infow("secrets loaded", "backend", backend.Kind())
-	a := &app{Service: &model.Service{Cfg: cfg, Sec: sec, Log: log}, cfgPath: cfgPath}
 	if _, err := a.ProviderKey(cfg.GetString("models.tts.provider")); err != nil {
 		rlog.Errorw("missing API key", "err", err)
 		return 1
@@ -116,7 +123,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 
 	if len(args) > 0 {
 		if args[0] != "tts" || len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter> | telegram ...]  (no command: run the server)")
+			fmt.Fprintln(os.Stderr, "usage: sevi [-config path] [tts <url> | token <adapter> | telegram ... | migrate]  (no command: run the server)")
 			return 2
 		}
 		if err := a.runTTS(ctx, args[1]); err != nil {
