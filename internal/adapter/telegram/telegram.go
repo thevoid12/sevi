@@ -438,6 +438,11 @@ func (b *Bot) deliver(ctx context.Context, chatID, statusID, replyTo int64, page
 			sentID, err = b.sendBlogAudio(ctx, chatID, replyTo, pageURL, p)
 			if err == nil {
 				_ = b.api.deleteMessage(ctx, chatID, statusID)
+				if p.Note != "" { // e.g. "only the first 3 of 9 parts"
+					if _, nerr := b.api.sendMessage(ctx, chatID, p.Note, nil, sentID); nerr != nil {
+						log.Warnw("could not send the note", "err", nerr)
+					}
+				}
 			}
 		default:
 			continue

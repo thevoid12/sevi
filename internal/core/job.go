@@ -27,6 +27,7 @@ type Part struct {
 	Seconds   int    `json:"seconds,omitempty"`
 	Title     string `json:"title,omitempty"` // audio: the article's title
 	Mime      string `json:"mime,omitempty"`  // audio: audio/mpeg or audio/ogg; input audio: the sender's type
+	Note      string `json:"note,omitempty"`  // audio: shown with it, e.g. that it is only partly made
 	Data      []byte `json:"data,omitempty"`  // input audio bytes (base64 in JSON)
 	// CostUSD on an output part is what producing it cost (a blog: the whole session so far).
 	CostUSD *float64 `json:"cost_usd,omitempty"`

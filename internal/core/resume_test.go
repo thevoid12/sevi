@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"sevi/internal/event"
 	"sevi/internal/model"
 	"sevi/internal/objectstore"
 	"sevi/internal/pricing"
@@ -67,12 +66,18 @@ func TestFailedLinkContinuesFromTheSavedChunk(t *testing.T) {
 		t.Fatalf("first run: %s", v.Status)
 	}
 	v = send(Message{SessionID: v.SessionID, Parts: []Part{{Type: "confirm", Decision: "yes"}}})
-	if v.Status != Failed {
-		t.Fatalf("want Failed, got %s", v.Status)
+	// The person gets the audio that was made, marked as partial, not an error.
+	if v.Status != Done || len(v.Parts) != 1 || v.Parts[0].Type != "audio" {
+		t.Fatalf("want a Done job with the partial audio, got %s %+v (events %+v)", v.Status, v.Parts, v.Events)
 	}
-	last := v.Events[len(v.Events)-1]
-	if last.Kind != event.Error || !strings.Contains(last.Message, "The first 1 of 2 parts are saved") {
-		t.Errorf("the message should say what is saved: %q", last.Message)
+	if n := v.Parts[0].Note; !strings.Contains(n, "Only the first 1 of 2 parts") || !strings.Contains(n, "send the link again") && !strings.Contains(n, "Send the link again") {
+		t.Errorf("the note should say it is partial and how to continue: %q", n)
+	}
+	if v.Parts[0].Seconds != 1 || v.Parts[0].CostUSD == nil || *v.Parts[0].CostUSD <= 0 {
+		t.Errorf("partial audio part: %+v", v.Parts[0])
+	}
+	if _, err := st.GetAudio(context.Background(), store.URLHash(url), "m", "v"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("partial audio must not be cached as the finished one: %v", err)
 	}
 	p, err := st.GetPartial(context.Background(), store.URLHash(url), "m", "v")
 	if err != nil || p.DoneChunks != 1 || p.TotalChunks != 2 {

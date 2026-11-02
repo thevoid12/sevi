@@ -51,6 +51,7 @@ type part struct {
 	Seconds   int      `json:"seconds,omitempty"`
 	Title     string   `json:"title,omitempty"`
 	Mime      string   `json:"mime,omitempty"`
+	Note      string   `json:"note,omitempty"`
 	Text      string   `json:"text,omitempty"`
 	Data      []byte   `json:"data,omitempty"`
 	CostUSD   *float64 `json:"cost_usd,omitempty"`

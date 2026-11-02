@@ -76,8 +76,8 @@ func TestLinksEndToEnd(t *testing.T) {
 			wantStatus: Done, wantTitle: "A Blog Post", wantTTS: 2, reshare: true},
 		{name: "long post asks first", url: "https://blog.example/long", page: page("Long Read", 600000),
 			wantStatus: NeedsConfirmation, wantTTS: 0, confirm: true},
-		{name: "tts fails midway", url: "https://substack.example/p/x", page: page("Fails", 5700), ttsFailAt: 2,
-			wantStatus: Failed, wantTTS: 2, wantMsg: "part 2 of 2"},
+		{name: "tts fails on the first chunk", url: "https://substack.example/p/x", page: page("Fails", 5700), ttsFailAt: 1,
+			wantStatus: Failed, wantTTS: 1, wantMsg: "part 1 of 2"},
 		{name: "not http", url: "ftp://x", wantErr: true},
 	}
 

@@ -108,11 +108,23 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		j.progress(fmt.Sprintf("Generating audio %d/%d", i+1, len(chunks)), i+1, len(chunks))
 		sp, err := c.TTS.Synth(ctx, ch)
 		if err != nil {
-			msg := providerMessage(err, i+1, len(chunks))
-			if c.savePartial(ctx, hash, ttsModel, ttsVoice, len(chunks), i, pcm, carried+total) {
-				msg += fmt.Sprintf(" The first %d of %d parts are saved: send the link again to continue.", i, len(chunks))
+			reason := providerMessage(err, i+1, len(chunks))
+			saved := c.savePartial(ctx, hash, ttsModel, ttsVoice, len(chunks), i, pcm, carried+total)
+			// Give the person what was made, unless the server is stopping (then nothing can be sent).
+			if i > 0 && ctx.Err() == nil {
+				note := fmt.Sprintf("Only the first %d of %d parts could be made. %s", i, len(chunks), reason)
+				if saved {
+					note += " Send the link again to continue from part " + fmt.Sprint(i+1) + "."
+				}
+				log.Errorw("tts failed part way, sending the partial audio", "chunk", i+1, "chunks", len(chunks), "err", err)
+				if c.sendPartial(ctx, j, sessionID, title, pcm, carried, note) {
+					return nil
+				}
 			}
-			return event.Wrap(msg, fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), ttsModel, err))
+			if saved {
+				reason += fmt.Sprintf(" The first %d of %d parts are saved: send the link again to continue.", i, len(chunks))
+			}
+			return event.Wrap(reason, fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), ttsModel, err))
 		}
 		cost, err := c.recordTTS(ctx, sessionID, sp, len([]rune(ch)))
 		if err != nil {
@@ -215,6 +227,36 @@ func (c *Core) pageText(ctx context.Context, j *Job, pageURL, hash string) (text
 		log.Errorw("could not cache page text", "url", pageURL, "err", err)
 	}
 	return text, title, nil
+}
+
+// sendPartial finishes the job with the audio made so far, marked as incomplete,
+// instead of failing it. It is not put in the audio cache, so sharing the link
+// again continues from the saved parts. It reports false if it could not.
+func (c *Core) sendPartial(ctx context.Context, j *Job, sessionID, title string, pcm [][]byte, carried float64, note string) bool {
+	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
+	all := audio.Stitch(pcm)
+	mp3, err := audio.EncodeMP3(ctx, all)
+	var msg model.Message
+	var sc model.SessionCost
+	if err == nil {
+		key := objectstore.Key(".mp3")
+		if err = c.Objects.Put(ctx, key, mp3, "audio/mpeg"); err == nil {
+			if msg, err = c.Store.AddMessage(ctx, model.NewMessage{SessionID: sessionID, Role: "assistant", AudioKey: key, Format: "voice"}); err == nil {
+				sc, err = c.Store.SessionCost(ctx, sessionID)
+			}
+		}
+	}
+	if err != nil {
+		log.Errorw("could not send the partial audio", "err", err)
+		return false
+	}
+	cost := carried + sc.TotalUsd
+	seconds := int(audio.Duration(all))
+	log.Infow("partial audio sent", "seconds", seconds, "bytes", len(mp3), "cost_usd", cost)
+	j.emit(event.Event{Kind: event.Cost, Message: fmt.Sprintf("Cost $%.2f", cost), CostUSD: &cost})
+	j.emit(event.Event{Kind: event.Done, Message: "Part of the audio is ready."})
+	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title, Mime: "audio/mpeg", CostUSD: &cost, Note: note}})
+	return true
 }
 
 // loadCheckpoint reads a saved partial back into PCM.
