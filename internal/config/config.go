@@ -41,6 +41,8 @@ func setDefaults(c *Config) {
 	c.SetDefault("models.tts.chars_per_minute", 950)
 	c.SetDefault("models.tts.audio_tokens_per_sec", 25)
 	c.SetDefault("cost.price_ttl_days", 7)
+	// Data older than this is deleted: R2 audio (by the deploy), database rows (by the app).
+	c.SetDefault("retention_days", 7)
 	// Idle window (package idle): minutes. Used only when app.dev is false.
 	c.SetDefault("idle.initial_min", 2)
 	c.SetDefault("idle.blog_min", 6)

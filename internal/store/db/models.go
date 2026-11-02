@@ -39,6 +39,15 @@ type Ledger struct {
 	UpdatedBy    sql.NullString
 }
 
+type Maintenance struct {
+	ID           string
+	LastPrunedOn sql.NullTime
+	CreatedOn    time.Time
+	CreatedBy    sql.NullString
+	UpdatedOn    sql.NullTime
+	UpdatedBy    sql.NullString
+}
+
 type Message struct {
 	ID        string
 	SessionID string

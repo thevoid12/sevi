@@ -24,6 +24,14 @@ const DefaultURL = "postgres://sevi:sevi@127.0.0.1:5432/sevi?sslmode=disable"
 // Set SEVI_TEST_DATABASE_URL to use another server.
 func Open(t *testing.T, log *zap.SugaredLogger) *store.Store {
 	t.Helper()
+	st, _ := OpenSQL(t, log)
+	return st
+}
+
+// OpenSQL is Open plus a plain connection to the same schema, for tests that
+// need to write rows directly (for example with old timestamps).
+func OpenSQL(t *testing.T, log *zap.SugaredLogger) (*store.Store, *sql.DB) {
+	t.Helper()
 	base := os.Getenv("SEVI_TEST_DATABASE_URL")
 	if base == "" {
 		base = DefaultURL
@@ -57,5 +65,10 @@ func Open(t *testing.T, log *zap.SugaredLogger) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return st
+	raw, err := sql.Open("pgx", u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { raw.Close() })
+	return st, raw
 }

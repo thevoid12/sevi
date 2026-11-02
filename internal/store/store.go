@@ -33,6 +33,8 @@ var _ model.Store = (*Store)(nil)
 type Store struct {
 	sql *sql.DB
 	q   *db.Queries
+
+	retentionDays int // 0 = keep everything (see SetRetention)
 }
 
 // Open connects to the Postgres database at dsn and applies migrations. It is
@@ -328,6 +330,22 @@ func (s *Store) MarkSeen(ctx context.Context, adapter, ref string) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	_ = s.q.PruneSeen(ctx) // housekeeping; a failure must not drop the message
+	_ = s.Prune(ctx) // housekeeping; a failure must not drop the message
 	return n > 0, nil
+}
+
+// SetRetention sets how many days data is kept (retention_days in config.json);
+// 0 keeps everything. Call it once after Open.
+func (s *Store) SetRetention(days int) { s.retentionDays = days }
+
+// Prune deletes data older than the retention period, but only when the last
+// prune (recorded in the maintenance table) is itself older than that period.
+// It rides on incoming messages: there is no job, and a sleeping instance costs
+// nothing. It deletes whole conversations (messages, links, ledger rows), cached
+// pages and audio rows, and seen ids, and records the time, in one statement.
+func (s *Store) Prune(ctx context.Context) error {
+	if s.retentionDays <= 0 {
+		return nil
+	}
+	return s.q.PruneOld(ctx, int32(s.retentionDays))
 }

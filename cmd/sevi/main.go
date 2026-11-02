@@ -112,6 +112,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 		return 1
 	}
 	defer st.Close()
+	st.SetRetention(cfg.GetInt("retention_days"))
 	a.Store = st
 	objects, err := objectstore.FromSettings(cfg, sec)
 	if err != nil {

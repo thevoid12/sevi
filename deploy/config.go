@@ -9,7 +9,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
-// prodConfig is the config baked into the image; the deploy reads audio.retention_days from it.
+// prodConfig is the config baked into the image; the deploy reads retention_days from it.
 const prodConfig = "../config.prod.json"
 
 // settings are the stack's configuration (`pulumi config set sevi:<key> ...`).
@@ -19,7 +19,7 @@ type settings struct {
 	Region              string // Cloud Run, Artifact Registry and API Gateway region
 	CloudflareAccountID string
 	R2Location          string // R2 location hint: wnam, enam, weur, eeur, apac
-	AudioRetentionDays  int    // R2 deletes audio older than this; from audio.retention_days in the prod config
+	AudioRetentionDays  int    // R2 deletes audio older than this; from retention_days in the prod config
 	LogRetentionDays    int
 
 	// Secrets: values only you have. Everything else in the secret JSON is
@@ -72,7 +72,7 @@ func strOr(v, def string) string {
 	return v
 }
 
-// audioRetentionDays reads audio.retention_days from the prod config file, so the
+// audioRetentionDays reads retention_days from the prod config file, so the
 // number lives in one place. Missing or not positive means 7.
 func audioRetentionDays(path string) (int, error) {
 	b, err := os.ReadFile(path)
@@ -80,15 +80,13 @@ func audioRetentionDays(path string) (int, error) {
 		return 0, fmt.Errorf("read %s: %w", path, err)
 	}
 	var c struct {
-		Audio struct {
-			RetentionDays int `json:"retention_days"`
-		} `json:"audio"`
+		RetentionDays int `json:"retention_days"`
 	}
 	if err := json.Unmarshal(b, &c); err != nil {
 		return 0, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if c.Audio.RetentionDays <= 0 {
+	if c.RetentionDays <= 0 {
 		return 7, nil
 	}
-	return c.Audio.RetentionDays, nil
+	return c.RetentionDays, nil
 }

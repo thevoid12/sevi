@@ -27,12 +27,3 @@ func (q *Queries) MarkSeen(ctx context.Context, arg MarkSeenParams) (int64, erro
 	}
 	return result.RowsAffected()
 }
-
-const pruneSeen = `-- name: PruneSeen :exec
-DELETE FROM seen_updates WHERE created_on < now() - interval '7 days'
-`
-
-func (q *Queries) PruneSeen(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, pruneSeen)
-	return err
-}

@@ -3,7 +3,7 @@
 `make infra_up` builds `bin/sevi` and runs this Pulumi program, which creates the
 GCP project (Cloud Run, API Gateway + API key, Secret Manager, Artifact Registry,
 7-day log retention, a billing budget alert), the Cloudflare R2 audio bucket (files expire after
-`audio.retention_days` from `config.prod.json`), applies the database schema to your Neon database, builds and
+`retention_days` from `config.prod.json`, and the app deletes database rows older than that too), applies the database schema to your Neon database, builds and
 pushes the image, and points Telegram's webhook at the gateway.
 
 ## One-time setup
