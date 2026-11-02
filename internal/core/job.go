@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ type Job struct {
 	parts      []Part
 	finishedAt time.Time
 	changed    chan struct{} // closed and replaced on every change
+	cancel     context.CancelCauseFunc
 }
 
 func newJob(id, sessionID string) *Job {

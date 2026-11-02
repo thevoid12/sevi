@@ -44,13 +44,13 @@ func setDefaults(c *Config) {
 	// Data older than this is deleted: R2 audio (by the deploy), database rows (by the app).
 	c.SetDefault("retention_days", 7)
 	// Idle window (package idle): minutes. Used only when app.dev is false.
-	c.SetDefault("idle.initial_min", 2)
-	c.SetDefault("idle.blog_min", 6)
-	c.SetDefault("idle.first_answer_min", 10)
-	c.SetDefault("idle.extend_min", 5)
-	c.SetDefault("idle.cap_min", 90)
-	c.SetDefault("idle.keepalive_min", 5)
-	c.SetDefault("idle.keepalive_db", false)
+	// Cold start is ~2s, so windows are short: the instance only waits for the next message
+	// of a conversation that is clearly in progress.
+	c.SetDefault("idle.initial_min", 0.5)
+	c.SetDefault("idle.blog_min", 0.5)
+	c.SetDefault("idle.first_answer_min", 2)
+	c.SetDefault("idle.extend_min", 1)
+	c.SetDefault("idle.cap_min", 30)
 }
 
 // TokenTTL is how long a minted API token lives.

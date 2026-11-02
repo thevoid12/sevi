@@ -21,11 +21,15 @@
 ## 4. When speech fails
 ![When speech fails](./design/images/4-when-speech-fails.svg)
 
+A chunk is tried on the main voice model with the configured retries (`app.retries`), then cut into halves and quarters that are tried once each (no retries), and a quarter that still fails goes to the fallback models. After two chunks in a row fail on the main model it is skipped for 10 minutes. You can also reply `/stop` to a blog that is still being made: it stops at once and sends the audio made so far, and sending the link again continues from there.
+
 ## 5. Follow-up questions, by voice or text
 ![Follow-up questions](./design/images/5-follow-up-questions.svg)
 
 ## 6. Sleeping when idle
-![Scale to zero](./design/images/6-scale-to-zero.svg)
+![Scale to zero](./design/images/6-scale-to-zero-v2.svg)
+
+A cold start takes about 2 s, so the instance does not stay warm: it exits 30 s after a blog is delivered, and follow-up answers keep it up 1 to 2 minutes. A running job (audio generation can take many minutes) always finishes first; the window only starts counting once it ends.
 
 ## 7. Where data lives, and how long
 ![Data and retention](./design/images/7-data-and-retention.svg)

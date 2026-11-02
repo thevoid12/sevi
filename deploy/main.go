@@ -70,10 +70,9 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
-	// Version 2 adds the URLs that need the gateway: the app's keep-warm ping and
-	// the Telegram webhook (the key rides in the query string).
+	// Version 2 adds the URL that needs the gateway: the Telegram webhook (the key
+	// rides in the query string).
 	full := map[string]pulumi.StringInput{
-		"KEEPALIVE_URL":        pulumi.Sprintf("https://%s/keepalive?key=%s", gw.host, gw.apiKey),
 		"TELEGRAM_WEBHOOK_URL": pulumi.Sprintf("https://%s/telegram?key=%s", gw.host, gw.apiKey),
 	}
 	for k, v := range base {

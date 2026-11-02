@@ -167,11 +167,8 @@ func TestSecretJSONMatchesTheSample(t *testing.T) {
 			t.Errorf("secret v2 has %s, which secret_sample.json does not list", k)
 		}
 	}
-	if _, has := v1["KEEPALIVE_URL"]; has {
+	if _, has := v1["TELEGRAM_WEBHOOK_URL"]; has {
 		t.Error("v1 must not need the gateway URLs (Cloud Run starts before the gateway exists)")
-	}
-	if !strings.Contains(v2["KEEPALIVE_URL"], "sevi-x.uc.gateway.dev/keepalive?key=KEY123") {
-		t.Errorf("KEEPALIVE_URL: %s", v2["KEEPALIVE_URL"])
 	}
 	if v2["DATABASE_URL"] != "postgresql://sevi:dbpass@ep-1.neon.tech/sevi?sslmode=require" {
 		t.Errorf("DATABASE_URL: %s", v2["DATABASE_URL"])
@@ -196,12 +193,12 @@ func TestGatewaySpecPointsAtCloudRun(t *testing.T) {
 	if strings.Contains(spec, "CLOUD_RUN_URL") || !strings.Contains(spec, "https://sevi-abc-uc.a.run.app") {
 		t.Error("the placeholder was not replaced by the Cloud Run URL")
 	}
-	for _, path := range []string{"/telegram:", "/keepalive:"} {
+	for _, path := range []string{"/telegram:"} {
 		if !strings.Contains(spec, path) {
 			t.Errorf("spec lacks %s", path)
 		}
 	}
-	if strings.Contains(spec, "\n  /v1") {
+	if strings.Contains(spec, "/keepalive") || strings.Contains(spec, "\n  /v1") {
 		t.Error("the Core API must not be exposed")
 	}
 }

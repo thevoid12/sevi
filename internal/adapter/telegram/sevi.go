@@ -100,6 +100,11 @@ func (c *seviClient) job(ctx context.Context, id string, after, waitSec int) (jo
 	return v, err
 }
 
+// stop asks Core to stop a running job.
+func (c *seviClient) stop(ctx context.Context, jobID string) error {
+	return c.do(ctx, "POST", "/v1/jobs/"+jobID+"/stop", nil, nil)
+}
+
 func (c *seviClient) audio(ctx context.Context, messageID string) ([]byte, error) {
 	req, err := c.request(ctx, "GET", "/v1/audio/"+messageID, nil)
 	if err != nil {

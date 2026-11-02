@@ -154,19 +154,3 @@ func TestPromptAndLaterWindowsNeverShorten(t *testing.T) {
 		t.Error("a blog must not shorten an open window")
 	}
 }
-
-func TestKeepalive(t *testing.T) {
-	h := KeepaliveHandler("s", nil)
-	do := func(method, secret string) int {
-		r := httptest.NewRequest(method, "/keepalive", nil)
-		if secret != "" {
-			r.Header.Set("X-Telegram-Bot-Api-Secret-Token", secret)
-		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w.Code
-	}
-	if do("POST", "s") != 204 || do("POST", "x") != 403 || do("POST", "") != 403 || do("GET", "s") != 405 {
-		t.Error("keepalive checks wrong")
-	}
-}

@@ -30,7 +30,7 @@ Telegram servers ──POST /telegram?key=K + secret header──► API Gateway
 Stranger ──────────────────────────────────────────────────┘ rejected, nothing starts     CPU always on, 1 vCPU / 1 GiB)
 Stranger ──direct run.app URL──► 403 from Google IAM, nothing starts                      │
                                                                                            ├─ webhook handler → 200 in ms
-                                                 ┌── self-ping /keepalive?key=K ◄──────────┤─ idle manager (+ SELECT 1)
+                                                 ┌── (no self-ping)                ◄──────────┤─ idle manager (+ SELECT 1)
                                                  ▼                                         ├─ Core: jobs as goroutines, ffmpeg in /tmp (RAM)
                                             API Gateway                                    │
                                                                                            ├──► api.telegram.org  (sendMessage, editMessageText,
@@ -47,7 +47,7 @@ Secret Manager (one JSON) · Artifact Registry (image) · Budget → Pub/Sub →
 3. If no instance is running, Cloud Run cold-starts one (time to be measured in the spike). Nothing is restored at boot; the database is remote.
 4. The webhook handler checks the secret header, caps the body at 64 KB, checks the `from.id` allowlist (200 on miss so Telegram does not retry), records `update_id` in Postgres with `INSERT ... ON CONFLICT DO NOTHING` (zero rows affected means a duplicate: 200, nothing else), then replies 200.
 5. A goroutine runs the job. Status goes to Telegram as separate outgoing calls: `sendMessage` once, then `editMessageText` as each step finishes, then `sendAudio` (blog) or `sendVoice` / `sendMessage` (answer). Rows go to Postgres.
-6. The idle manager keeps the instance warm for the window, pinging its own `/keepalive` through the gateway, then exits.
+6. The idle manager keeps the process up for a short window (cold start is ~2 s, so no keep-warm ping), then exits.
 
 ## Idle manager
 Cloud Run only counts requests in progress when deciding an instance is busy; code running in the background does not count. So the manager keeps the instance alive with real requests. Neon has its own clock: its free-plan compute suspends after 5 minutes without queries and that cannot be turned off, so the ping can also keep the database awake.
@@ -56,7 +56,7 @@ Cloud Run only counts requests in progress when deciding an instance is busy; co
 - **After a blog is sent:** window ends at now + audio length + first step.
 - **After each follow-up answer:** window ends at now + next step. Steps from `app.idle_windows_min`, default `[10, 8, 6, 4, 2]`, floor 2. A new blog resets to the first step.
 - **While a Yes/No prompt is pending:** first step.
-- **Keep-warm:** while the window is open, `POST /keepalive?key=K` through the gateway every 5 minutes (`app.keepalive_min`). The handler checks the secret header, runs `SELECT 1` when `app.keepalive_db` is true, and returns 204. Turn `keepalive_db` on only if the spike shows the Neon wake-up is noticeable.
+- **No keep-warm:** cold start measured at ~2 s, so nothing pings the instance. Windows (`idle.*_min`): boot 0.5, after a blog 0.5, first answer 2, each further answer 1 from now, cap 30. Each `exit(0)` is followed by a few restarts from Cloud Run's autoscaler; a ping would only feed that.
 - **Hard cap:** the window can never end more than 90 minutes from now (`app.idle_cap_min`), whatever the audio length, so a bug cannot keep an instance up all month.
 - **Close:** window over, no job, no request in flight → stop pinging, graceful exit 0. Fallback if Cloud Run reports self-exit as an error: just stop pinging and let Cloud Run remove the idle instance (still free).
 - **SIGTERM:** `Core.Close` drain within Cloud Run's grace period. A job still running is lost (resend the link).
@@ -75,8 +75,8 @@ Cloud Run only counts requests in progress when deciding an instance is busy; co
 7. **Migration 007:** `seen_updates (update_id unique, created_on)`; `audio_cache.tg_file_id`; confirm `pending` is persisted (the design map says it is; the old deploy plan had it in memory). Migrations convert rows, never drop tables.
 8. **Webhook adapter** (`internal/adapter/telegram/`): `http.Handler` for `POST /telegram` doing the checks in step 4 of the flow, then handing the update to the existing per-update goroutine. Keep long polling behind a config flag for local dev. Listen on `$PORT`, set `api.allow_remote_listen`.
 9. **file_id reuse:** after `sendAudio`, store the returned `file_id` in `audio_cache`. On a cache hit, send by `file_id`; fall back to re-encoding only if Telegram rejects it.
-10. **Idle manager** package wired in `cmd/sevi/main.go` (Core reports job start/end, message kind and audio length). Add `POST /keepalive`.
-11. **Secrets:** read one JSON env var (`SEVI_SECRETS`) into config: `telegram_bot_token`, `telegram_webhook_secret`, `openrouter_api_key`, `database_url`, `gateway_api_key` (used by keep-warm pings and the webhook script), `jwt_secret`.
+10. **Idle manager** package wired in `cmd/sevi/main.go` (Core reports job start/end, message kind and audio length).
+11. **Secrets:** read one JSON env var (`SEVI_SECRETS`) into config: `telegram_bot_token`, `telegram_webhook_secret`, `openrouter_api_key`, `database_url`, `gateway_api_key` (used by the webhook script), `jwt_secret`.
 12. **Dev setup:** `docker-compose.yml` with a local Postgres; README explains `make test` against it.
 
 ### C. Container
@@ -87,7 +87,7 @@ Cloud Run only counts requests in progress when deciding an instance is busy; co
 15. **Secret Manager:** one secret `sevi-secrets` (JSON). Rotate with `versions add` and destroy the old version immediately (free tier: 6 active versions).
 16. **Artifact Registry:** cleanup policy keeps the last 2 images.
 17. **Cloud Run:** `--no-allow-unauthenticated --min-instances=0 --max-instances=1 --no-cpu-throttling --cpu=1 --memory=1Gi --timeout=3600`, secret mounted as `SEVI_SECRETS`. Region must be one API Gateway supports (us-central1 or us-east1).
-18. **API Gateway:** service account with only `roles/run.invoker` on the service. `deploy/openapi.yaml` exposes `POST /telegram` and `POST /keepalive`, both with `security: api_key` in the `key` query param, and a backend deadline of ~30 s. Create the API key, restrict it to this API.
+18. **API Gateway:** service account with only `roles/run.invoker` on the service. `deploy/openapi.yaml` exposes `POST /telegram`, with `security: api_key` in the `key` query param, and a backend deadline of ~30 s. Create the API key, restrict it to this API.
 
 ### E. Neon
 19. Project in the Neon region nearest your Cloud Run region. A dedicated role with rights on this database only. Connection string with `sslmode=require`. Do not add a payment method: the free plan then has nothing to bill. Neon's free plan has a short restore window; if you want more, schedule a weekly `pg_dump` to a free bucket (optional).
@@ -132,7 +132,7 @@ Cloud Run only counts requests in progress when deciding an instance is busy; co
 2. `docker run -p 8080:8080` locally against a dev database. POST fake updates: wrong secret header → 403; non-allowlisted user → 200, no work; repeated `update_id` → 200, no second job; valid update → audio sent, `file_id` stored.
 3. Deploy. Gateway with no key and a bad key → rejected, no Cloud Run request logged. `run.app` URL directly → 403, zero instances.
 4. `set-webhook.sh`, `getWebhookInfo` shows the URL and no errors. Send a blog link, get the MP3. Send the same link again → instant, $0.00, sent by `file_id`.
-5. Idle manager: after a 10-minute blog, instance stays up ~20 minutes with pings in the logs (and Neon stays awake if `keepalive_db` is on), then exits with no Cloud Run error. Follow-ups step the window down. Cap holds at 90 minutes.
+5. Idle manager: after a blog the instance exits within ~30 s; follow-ups keep it 1-2 min. Cap holds at 30 minutes.
 6. Scale to zero, then send a follow-up: cold start, history intact from Neon.
 7. Kill switch: trigger the function manually on a test project and confirm billing is disabled.
 8. we will put the audio url after uploading it into r2 which will reduce db size,helps in web app as well as r2 is free for our scale

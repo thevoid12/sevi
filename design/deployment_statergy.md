@@ -7,10 +7,10 @@ Tick = done. Each line is one step, in order.
 - [x] Database moved from SQLite to Postgres (sqlc, local Docker Postgres via `make docker_db_up`)
 - [x] Audio goes to an object store (local disk in dev, Cloudflare R2 in prod), timestamp-named, presigned links
 - [x] Telegram adapter uses a webhook (no long polling), checks secret header, dedupes updates in the database
-- [x] Idle manager: window after a blog 6 min, first answer 10 min, each later answer keeps 5 min from now, cap 90 min
+- [x] Idle manager: window after a blog 0.5 min, first answer 2 min, each later answer keeps 1 min from now, cap 30 min; no keep-warm ping
 - [x] Production logging: JSON on stdout for Cloud Logging, `log.level` switch
 - [x] Lean image (static binary + static ffmpeg on distroless, about 65 MB compressed)
-- [x] API Gateway spec exposing only `/telegram` and `/keepalive`, both behind an API key
+- [x] API Gateway spec exposing only `/telegram`, behind an API key
 - [x] Pulumi program in `deploy/` (GCP project, Cloud Run, Gateway, Secret Manager, Artifact Registry, R2) with mock tests
 
 ## Neon database (done)

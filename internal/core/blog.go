@@ -110,6 +110,22 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		if err != nil {
 			reason := providerMessage(err, i+1, len(chunks))
 			saved := c.savePartial(ctx, hash, ttsModel, ttsVoice, len(chunks), i, pcm, carried+total)
+			if errors.Is(context.Cause(ctx), ErrStopped) {
+				// The user stopped it: hand over what is made, even though ctx is cancelled.
+				if i > 0 {
+					sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+					defer cancel()
+					note := fmt.Sprintf("Stopped. Here are the first %d of %d parts.", i, len(chunks))
+					if saved {
+						note += " Send the link again to continue from part " + fmt.Sprint(i+1) + "."
+					}
+					log.Infow("blog stopped by the user, sending the partial audio", "chunks_done", i, "chunks", len(chunks))
+					if c.sendPartial(sctx, j, sessionID, title, pcm, carried, note) {
+						return nil
+					}
+				}
+				return ErrStopped
+			}
 			// Give the person what was made, unless the server is stopping (then nothing can be sent).
 			if i > 0 && ctx.Err() == nil {
 				note := fmt.Sprintf("Only the first %d of %d parts could be made. %s", i, len(chunks), reason)

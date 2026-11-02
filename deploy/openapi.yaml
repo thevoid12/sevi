@@ -1,6 +1,6 @@
 # API Gateway config for sevi (Google API Gateway reads OpenAPI 2.0).
 #
-# Only two paths are public, both guarded by an API key in the `key` query
+# Only one path is public, guarded by an API key in the `key` query
 # parameter: the gateway rejects a missing or wrong key itself, so Cloud Run is
 # never contacted and no instance starts. Everything else (the /v1 Core API) is
 # not listed, so the gateway answers 404 for it. The gateway calls Cloud Run with
@@ -23,7 +23,7 @@
 swagger: "2.0"
 info:
   title: sevi
-  description: Telegram webhook and keep-warm ping for sevi.
+  description: Telegram webhook for sevi.
   version: "1.0.0"
 schemes:
   - https
@@ -58,21 +58,5 @@ paths:
       responses:
         "200":
           description: "Update accepted (or ignored: a repeat, or a user not on the allowlist)."
-        "403":
-          description: Wrong secret header.
-
-  /keepalive:
-    post:
-      operationId: keepalive
-      summary: Keep-warm ping sent by sevi to itself while a conversation is open.
-      security:
-        - api_key: []
-      x-google-backend:
-        address: CLOUD_RUN_URL
-        path_translation: APPEND_PATH_TO_ADDRESS
-        deadline: 30.0 # allows for the database waking from suspension
-      responses:
-        "204":
-          description: Alive.
         "403":
           description: Wrong secret header.

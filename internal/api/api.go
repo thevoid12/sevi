@@ -42,6 +42,7 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/messages", a.postMessage)
 	mux.HandleFunc("GET /v1/jobs/{id}", a.getJob)
+	mux.HandleFunc("POST /v1/jobs/{id}/stop", a.stopJob)
 	mux.HandleFunc("GET /v1/sessions/{id}", a.getSession)
 	mux.HandleFunc("GET /v1/sessions/{id}/cost", a.getSessionCost)
 	mux.HandleFunc("POST /v1/threads", a.postThread)
@@ -101,6 +102,21 @@ func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
 		a.waitForChange(r, job, after, time.Duration(secs)*time.Second)
 	}
 	a.writeJSON(w, http.StatusOK, job.View(after))
+}
+
+// POST /v1/jobs/{id}/stop asks a running job to stop. A blog stopped part way
+// finishes with the audio made so far. 202 if it was running, 409 if it was not.
+func (a *API) stopJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if a.core.Job(id) == nil {
+		a.fail(w, r, http.StatusNotFound, event.Wrap("I don't know that job.", errors.New("job not found")))
+		return
+	}
+	if !a.core.StopJob(id) {
+		a.fail(w, r, http.StatusConflict, event.Wrap("Nothing is running there.", errors.New("job is not running")))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // waitFor blocks until the job leaves Running or the time/client runs out.

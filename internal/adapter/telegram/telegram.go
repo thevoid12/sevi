@@ -54,8 +54,9 @@ type Bot struct {
 	log      *zap.SugaredLogger
 
 	mu      sync.Mutex
-	pending map[int64]string // chat -> session id awaiting a typed yes/no
-	seenIDs map[int]struct{} // recent update ids, to drop Telegram's retries
+	pending map[int64]string  // chat -> session id awaiting a typed yes/no
+	running map[string]string // "chat:message" (the user's link, the status message) -> job id, while the job runs
+	seenIDs map[int]struct{}  // recent update ids, to drop Telegram's retries
 	seenOrd []int
 	wg      sync.WaitGroup
 	active  atomic.Int64 // updates being handled, from acknowledgement to the last message sent
@@ -81,7 +82,7 @@ func New(o Options, log *zap.SugaredLogger) (*Bot, error) {
 		api:     &botAPI{base: o.TelegramURL, token: o.Token},
 		core:    &seviClient{base: o.CoreURL, token: o.CoreToken},
 		allowed: allowed, secret: []byte(o.WebhookSecret), showCost: o.ShowCost, log: log,
-		pending: map[int64]string{}, seenIDs: map[int]struct{}{},
+		pending: map[int64]string{}, running: map[string]string{}, seenIDs: map[int]struct{}{},
 	}, nil
 }
 
@@ -226,8 +227,12 @@ func (b *Bot) onMessage(ctx context.Context, m in) {
 	log := logx.With(ctx, b.log)
 	user := strconv.FormatInt(m.userID, 10)
 
+	if cmd := command(m.text); cmd == "/stop" {
+		b.stop(ctx, m)
+		return
+	}
 	if m.text == "/start" {
-		b.say(ctx, m.chatID, "Send me a link to a blog and I will turn it into audio. Reply to any message with a voice note or text to ask about it.")
+		b.say(ctx, m.chatID, "Send me a link to a blog and I will turn it into audio. Reply to any message with a voice note or text to ask about it. Reply /stop to a blog that is still being made to get the audio made so far.")
 		return
 	}
 
@@ -271,6 +276,77 @@ func (b *Bot) onMessage(ctx context.Context, m in) {
 	if m.voice || m.text != "" {
 		b.ask(ctx, m, user)
 	}
+}
+
+// command is the bot command a message starts with, without any "@botname": "/stop@sevi_bot" is "/stop".
+func command(text string) string {
+	if !strings.HasPrefix(text, "/") {
+		return ""
+	}
+	first := strings.Fields(text)[0]
+	if i := strings.IndexByte(first, '@'); i >= 0 {
+		first = first[:i]
+	}
+	return strings.ToLower(first)
+}
+
+// track remembers which job the status message (and the user's own message)
+// belongs to, so a reply of /stop to either finds it. The returned func forgets it.
+func (b *Bot) track(chatID, statusID, replyTo int64, jobID string) func() {
+	keys := []string{ref(chatID, statusID)}
+	if replyTo != 0 {
+		keys = append(keys, ref(chatID, replyTo))
+	}
+	b.mu.Lock()
+	for _, k := range keys {
+		b.running[k] = jobID
+	}
+	b.mu.Unlock()
+	return func() {
+		b.mu.Lock()
+		for _, k := range keys {
+			if b.running[k] == jobID {
+				delete(b.running, k)
+			}
+		}
+		b.mu.Unlock()
+	}
+}
+
+// stop handles /stop. As a reply to a blog's message it stops that job; without
+// a reply it stops the chat's job when there is exactly one.
+func (b *Bot) stop(ctx context.Context, m in) {
+	log := logx.With(ctx, b.log)
+	b.mu.Lock()
+	jobID := ""
+	if m.replyTo != 0 {
+		jobID = b.running[ref(m.chatID, m.replyTo)]
+	} else {
+		prefix := strconv.FormatInt(m.chatID, 10) + ":"
+		jobs := map[string]bool{}
+		for k, id := range b.running {
+			if strings.HasPrefix(k, prefix) {
+				jobs[id] = true
+			}
+		}
+		if len(jobs) == 1 {
+			for id := range jobs {
+				jobID = id
+			}
+		}
+	}
+	b.mu.Unlock()
+	if jobID == "" {
+		b.say(ctx, m.chatID, "Nothing is running there. Reply /stop to the message of a blog that is still being made.")
+		return
+	}
+	if err := b.core.stop(ctx, jobID); err != nil {
+		log.Warnw("could not stop the job", "job", jobID, "err", err)
+		b.say(ctx, m.chatID, userMessage(err))
+		return
+	}
+	log.Infow("stop requested", "job", jobID)
+	_, _ = b.api.sendMessage(ctx, m.chatID, "Stopping. I will send what is made so far.", nil, m.msgID)
 }
 
 // ask handles a question, spoken or typed. If it replies to a message, Core
@@ -355,7 +431,8 @@ func (b *Bot) follow(ctx context.Context, chatID, statusID, replyTo int64, pageU
 	log := logx.With(ctx, b.log).With("session", v.SessionID, "job", v.ID)
 	after := 0
 	lastStatus := ""
-	deadline := time.Now().Add(20 * time.Minute)
+	deadline := time.Now().Add(time.Hour) // longer than any job can run (the idle cap is 30 min, a blog rarely needs more)
+	defer b.track(chatID, statusID, replyTo, v.ID)()
 
 	for {
 		for _, e := range v.Events {

@@ -2,9 +2,11 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -81,5 +83,72 @@ func TestSeenDedupesAndIsBounded(t *testing.T) {
 	}
 	if b.seen(7) {
 		t.Error("old id should have been forgotten")
+	}
+}
+
+func TestCommandStripsBotName(t *testing.T) {
+	for in, want := range map[string]string{"/stop": "/stop", "/STOP@sevi_bot": "/stop", "/stop now": "/stop", "stop": "", "https://x.y/z": ""} {
+		if got := command(in); got != want {
+			t.Errorf("command(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// /stop as a reply to a blog's message stops that job; without a reply it stops
+// the chat's only job; with nothing to stop it says so.
+func TestStopCommandFindsTheJob(t *testing.T) {
+	var stopped, said []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/stop"):
+			stopped = append(stopped, r.URL.Path)
+			w.WriteHeader(http.StatusAccepted)
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			var body struct {
+				Text string `json:"text"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			said = append(said, body.Text)
+			w.Write([]byte(`{"ok":true,"result":{"message_id":99}}`))
+		default:
+			t.Errorf("unexpected call %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	b, err := New(Options{
+		Token: "tok", WebhookSecret: "s", AllowedIDs: []int64{1}, TelegramURL: srv.URL,
+		CoreURL: srv.URL, CoreToken: func() (string, error) { return "t", nil },
+	}, zap.NewNop().Sugar())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	b.stop(ctx, in{chatID: 5, msgID: 20, text: "/stop"})
+	if len(stopped) != 0 || len(said) != 1 || !strings.Contains(said[0], "Nothing is running") {
+		t.Fatalf("nothing running: stopped=%v said=%v", stopped, said)
+	}
+
+	done := b.track(5, 11, 10, "job-1") // status message 11, the user's link was message 10
+	b.stop(ctx, in{chatID: 5, msgID: 21, replyTo: 11, text: "/stop"})
+	b.stop(ctx, in{chatID: 5, msgID: 22, replyTo: 10, text: "/stop"})
+	b.stop(ctx, in{chatID: 5, msgID: 23, text: "/stop"}) // not a reply: the chat's only job
+	if len(stopped) != 3 || stopped[0] != "/v1/jobs/job-1/stop" {
+		t.Fatalf("stopped = %v", stopped)
+	}
+
+	b.track(5, 31, 30, "job-2")
+	b.stop(ctx, in{chatID: 5, msgID: 24, text: "/stop"}) // two jobs and no reply: ambiguous
+	b.stop(ctx, in{chatID: 5, msgID: 25, replyTo: 999, text: "/stop"})
+	if len(stopped) != 3 {
+		t.Errorf("an ambiguous or unknown /stop must stop nothing: %v", stopped)
+	}
+	done()
+	b.stop(ctx, in{chatID: 5, msgID: 26, replyTo: 11, text: "/stop"})
+	if len(stopped) != 3 {
+		t.Errorf("a finished job is forgotten: %v", stopped)
 	}
 }

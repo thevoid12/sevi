@@ -125,7 +125,6 @@ type ErrorBody struct {
 // Store is the persistence the program needs. *store.Store implements it; it is
 // an interface here so this package does not import the store package.
 type Store interface {
-	Ping(ctx context.Context) error
 	Close() error
 
 	CreateSession(ctx context.Context, kind, url string) (Session, error)

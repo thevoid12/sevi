@@ -18,7 +18,7 @@ type edge struct {
 }
 
 // newGateway puts API Gateway in front of Cloud Run. The spec (openapi.yaml) lists
-// only /telegram and /keepalive, both needing the API key; the gateway calls Cloud
+// only /telegram, which needs the API key; the gateway calls Cloud
 // Run as its own service account, which alone may invoke the service.
 func newGateway(ctx *pulumi.Context, s settings, g *google, svc *cloudrunv2.Service) (*edge, error) {
 	if _, err := cloudrunv2.NewServiceIamMember(ctx, "gateway-invoker", &cloudrunv2.ServiceIamMemberArgs{

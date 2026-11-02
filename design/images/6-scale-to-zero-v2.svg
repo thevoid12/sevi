@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" width="1100" height="620" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="620" fill="#ffffff"/>
+<text x="550" y="47" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Sleeping when idle: short windows, no keep-warm</text>
+<rect x="30" y="100" width="170" height="130" rx="12" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="115.0" y="126.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A message arrives.</text>
+<text x="115.0" y="145.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloud Run starts an</text>
+<text x="115.0" y="165.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">instance (cold start</text>
+<text x="115.0" y="184.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">about 2 s).</text>
+<text x="115.0" y="204.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Window: 30 s</text>
+<rect x="250" y="100" width="170" height="130" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="335.0" y="145.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A blog is made</text>
+<text x="335.0" y="165.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Window: 30 s</text>
+<text x="335.0" y="184.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">after it</text>
+<rect x="470" y="100" width="170" height="130" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="555.0" y="155.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">First answer</text>
+<text x="555.0" y="174.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Window: 2 min</text>
+<rect x="690" y="100" width="170" height="130" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="775.0" y="135.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Each later answer</text>
+<text x="775.0" y="155.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">keeps the window open</text>
+<text x="775.0" y="174.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">at least 1 min</text>
+<text x="775.0" y="194.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">from now</text>
+<rect x="910" y="100" width="160" height="130" rx="12" fill="#ffc9c9" stroke="#1e1e1e" stroke-width="2"/>
+<text x="990.0" y="155.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Hard cap</text>
+<text x="990.0" y="174.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">30 min</text>
+<polyline points="200,165 250,165" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="420,165 470,165" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="640,165 690,165" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="860,165 910,165" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="290" width="1040" height="90" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="325.25" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">The instance exits when its window ends and nothing is running:</text>
+<text x="550.0" y="344.75" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">no job, no request, no Telegram update being handled.</text>
+<polyline points="115,230 115,290" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<polyline points="335,230 335,290" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<polyline points="555,230 555,290" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<polyline points="775,230 775,290" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<polyline points="990,230 990,290" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<polyline points="550,380 550,420" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="420" width="1040" height="70" rx="12" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="445.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloud Run scales to zero: nothing is billed while asleep.</text>
+<text x="550.0" y="464.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">The next message starts a new instance in about 2 s, so nothing pings it to stay warm.</text>
+<rect x="30" y="520" width="1040" height="70" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="545.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A long job is never cut by a window: the clock starts only after it ends.</text>
+<text x="550.0" y="564.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Half-done speech is checkpointed to R2 and the database, so a retry continues from there.</text>
+</svg>

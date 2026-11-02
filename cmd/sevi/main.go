@@ -22,7 +22,6 @@ import (
 	"sevi/internal/api"
 	"sevi/internal/auth"
 	"sevi/internal/config"
-	"sevi/internal/idle"
 	"sevi/internal/logx"
 	"sevi/internal/model"
 	"sevi/internal/objectstore"
@@ -140,7 +139,7 @@ func run(cfgPath string, logTest bool, args []string) int {
 // serve runs the HTTP API (and the Telegram adapter, if enabled) until
 // interrupted, then drains running jobs.
 func (a *app) serve(ctx context.Context) int {
-	cfg, log, st, cfgPath := a.Cfg, a.Log, a.Store, a.cfgPath
+	cfg, log, cfgPath := a.Cfg, a.Log, a.cfgPath
 	// Nobody but the configured adapters may call the API: no secrets, no start.
 	secret, err := a.Secret("api", "SEVI_JWT_SECRET")
 	if err != nil {
@@ -205,13 +204,6 @@ func (a *app) serve(ctx context.Context) int {
 	}
 	var handler http.Handler = mux
 	if idleMgr != nil {
-		if webhookSecret := a.OptionalSecret("TELEGRAM_WEBHOOK_SECRET"); webhookSecret != "" {
-			var dbPing func(context.Context) error
-			if cfg.GetBool("idle.keepalive_db") {
-				dbPing = st.Ping
-			}
-			mux.Handle("/keepalive", idle.KeepaliveHandler(webhookSecret, dbPing))
-		}
 		handler = idleMgr.Wrap(mux)
 		go idleMgr.Run(ctx, cancel)
 	}

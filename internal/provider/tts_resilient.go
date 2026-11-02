@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -15,6 +17,14 @@ import (
 // maxSplitDepth: a chunk that fails is cut into halves, and a half that fails
 // into quarters. Quarters are not cut further; they go to the fallback models.
 const maxSplitDepth = 2
+
+// After primaryStreak whole chunks in a row failed on the primary, it is
+// skipped for primaryCooldown and chunks go to the fallbacks first, so a model
+// that is down does not cost a few minutes per chunk.
+const (
+	primaryStreak   = 2
+	primaryCooldown = 10 * time.Minute
+)
 
 // Resilient wraps a TTS so one stubborn chunk does not fail the whole job.
 //
@@ -31,13 +41,59 @@ type Resilient struct {
 	Primary   *OpenRouterTTS
 	Fallbacks []*OpenRouterTTS
 	Log       *zap.SugaredLogger
+
+	mu        sync.Mutex
+	streak    int              // whole chunks in a row that failed on the primary
+	skipUntil time.Time        // while in the future, chunks go to the fallbacks first
+	now       func() time.Time // tests only
+}
+
+func (r *Resilient) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
+}
+
+// primaryDown reports whether the primary is being skipped.
+func (r *Resilient) primaryDown() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.clock().Before(r.skipUntil)
+}
+
+// note records how a whole chunk fared on the primary.
+func (r *Resilient) note(ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ok {
+		r.streak = 0
+		return
+	}
+	if r.streak++; r.streak >= primaryStreak {
+		r.skipUntil = r.clock().Add(primaryCooldown)
+		r.streak = 0
+	}
 }
 
 func (r *Resilient) Synth(ctx context.Context, text string) (Speech, error) {
-	sp, err := r.Primary.Synth(ctx, text)
-	if err == nil || !splittable(ctx, err) {
+	if len(r.Fallbacks) > 0 && r.primaryDown() {
+		logx.With(ctx, r.Log).Warnw("tts primary model is failing, using the fallbacks first", "model", r.Primary.Model, "chars", len([]rune(text)))
+		if sp, err := r.fallback(ctx, text, errors.New("primary model skipped")); err == nil {
+			return sp, nil
+		} else if ctx.Err() != nil {
+			return Speech{}, err
+		}
+	}
+	sp, err := r.Primary.Synth(ctx, text) // the whole chunk gets the configured retries; split pieces get none
+	if err == nil {
+		r.note(true)
+		return sp, nil
+	}
+	if !splittable(ctx, err) {
 		return sp, err
 	}
+	r.note(false)
 	a, b, ok := fetch.SplitHalf(text)
 	if !ok {
 		sp, err = r.fallback(ctx, text, err)

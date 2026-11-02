@@ -179,6 +179,8 @@ func (c *Core) handleConfirm(ctx, jobCtx context.Context, sessionID, decision st
 // message plus a ref.
 func (c *Core) start(ctx context.Context, sessionID, tag string, fn func(context.Context, *Job) error) *Job {
 	j := newJob(uuid.NewString(), sessionID)
+	ctx, cancel := context.WithCancelCause(ctx)
+	j.cancel = cancel
 	c.mu.Lock()
 	for id, old := range c.jobs {
 		if old.prunable(time.Hour) {
@@ -194,11 +196,18 @@ func (c *Core) start(ctx context.Context, sessionID, tag string, fn func(context
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		defer cancel(nil)
 		log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
 		if err := fn(ctx, j); err != nil {
-			log.Errorw("job failed", "err", err)
-			j.emit(event.Event{Kind: event.Error, Message: event.SafeMessage(err), Ref: reqid.From(ctx)})
-			j.setStatus(Failed, nil)
+			if errors.Is(context.Cause(ctx), ErrStopped) && !j.Terminal() {
+				log.Infow("job stopped by the user")
+				j.emit(event.Event{Kind: event.Notice, Message: "Stopped."})
+				j.setStatus(Done, nil)
+			} else if !j.Terminal() {
+				log.Errorw("job failed", "err", err)
+				j.emit(event.Event{Kind: event.Error, Message: event.SafeMessage(err), Ref: reqid.From(ctx)})
+				j.setStatus(Failed, nil)
+			}
 		}
 		if c.Activity != nil {
 			c.Activity.JobEnded(endTag(j.Status(), tag))
@@ -217,6 +226,20 @@ func endTag(s Status, tag string) string {
 		return idle.TagPrompt
 	}
 	return ""
+}
+
+// ErrStopped is the cancel cause of a job its user stopped (as opposed to a
+// server shutdown). A blog stopped part way still delivers the audio made so far.
+var ErrStopped = errors.New("stopped by the user")
+
+// StopJob asks a running job to stop. It reports whether the job was running.
+func (c *Core) StopJob(id string) bool {
+	j := c.Job(id)
+	if j == nil || j.Terminal() || j.cancel == nil {
+		return false
+	}
+	j.cancel(ErrStopped)
+	return true
 }
 
 // Job returns a job by id, or nil.

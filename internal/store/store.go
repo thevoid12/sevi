@@ -90,10 +90,6 @@ func pingWithRetry(ctx context.Context, conn *sql.DB, log *zap.SugaredLogger) er
 	return fmt.Errorf("connect to db: %w", err)
 }
 
-// Ping runs a trivial query: it checks the database is up and, on Neon, keeps
-// its compute awake.
-func (s *Store) Ping(ctx context.Context) error { return s.sql.PingContext(ctx) }
-
 func (s *Store) Close() error { return s.sql.Close() }
 
 // migrationLockID is the Postgres advisory lock that serialises migrations when

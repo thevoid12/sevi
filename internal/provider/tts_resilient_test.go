@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -159,5 +160,40 @@ func TestNoVoiceIsNotSent(t *testing.T) {
 	}
 	if _, has := body["voice"]; has {
 		t.Errorf("an empty voice must be left out: %v", body)
+	}
+}
+
+func TestResilientSkipsAFailingPrimaryForAWhile(t *testing.T) {
+	// The primary never works; the backup always does.
+	srv := newTTSServer(t, func(model, _ string) bool { return model == "main" })
+	r := resilient(srv.URL, 4, "backup")
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	for i := 0; i < primaryStreak; i++ { // each chunk tries the primary at most twice, then is cut up
+		if _, err := r.Synth(t.Context(), text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tried := srv.count("main")
+	// Per chunk: 5 attempts on the whole chunk (retries=4), then no retries: 2 halves, 4 quarters.
+	if want := primaryStreak * (5 + 2 + 4); tried != want {
+		t.Errorf("primary was tried %d times, want %d", tried, want)
+	}
+	// Now the primary is skipped: the whole chunk goes to the backup in one call.
+	sp, err := r.Synth(t.Context(), text)
+	if err != nil || len(sp.Parts) != 1 || sp.Parts[0].Model != "backup" {
+		t.Fatalf("want one backup call, got %+v, %v", sp.Parts, err)
+	}
+	if srv.count("main") != tried {
+		t.Error("the primary must not be tried during the cooldown")
+	}
+	// After the cooldown it is tried again.
+	now = now.Add(primaryCooldown + time.Second)
+	if _, err := r.Synth(t.Context(), text); err != nil {
+		t.Fatal(err)
+	}
+	if srv.count("main") == tried {
+		t.Error("the primary should be tried again after the cooldown")
 	}
 }
