@@ -47,6 +47,8 @@ func TestPruneDeletesOldDataOnly(t *testing.T) {
 	st.PutPage(ctx, "https://fresh.example", "t", "text")
 	st.PutAudio(ctx, "oldhash", "m", "v", "k1", 1)
 	st.PutAudio(ctx, "freshhash", "m", "v", "k2", 1)
+	st.PutPartial(ctx, "oldhash", "m", "v", 3, 1, "oldkey", 0.5)
+	st.PutPartial(ctx, "freshhash", "m", "v", 3, 1, "freshkey", 0.5)
 	st.MarkSeen(ctx, "telegram", "old")
 	st.MarkSeen(ctx, "telegram", "fresh")
 
@@ -57,6 +59,7 @@ func TestPruneDeletesOldDataOnly(t *testing.T) {
 		`UPDATE messages SET created_on = ` + ago + `, updated_on = ` + ago + ` WHERE session_id = '` + old.ID + `'`,
 		`UPDATE page_cache SET created_on = ` + ago + `, updated_on = ` + ago + ` WHERE url = 'https://old.example'`,
 		`UPDATE audio_cache SET created_on = ` + ago + ` WHERE url_hash = 'oldhash'`,
+		`UPDATE partial_audio SET created_on = ` + ago + ` WHERE url_hash = 'oldhash'`,
 		`UPDATE seen_updates SET created_on = ` + ago + ` WHERE ref = 'old'`,
 	} {
 		if _, err := raw.ExecContext(ctx, q); err != nil {
@@ -82,7 +85,7 @@ func TestPruneDeletesOldDataOnly(t *testing.T) {
 	// Only the fresh conversation, page, audio row and seen id remain.
 	for table, want := range map[string]int{
 		"sessions": 1, "messages": 1, "thread_map": 0, "pending": 0, "ledger": 0,
-		"page_cache": 1, "audio_cache": 1, "seen_updates": 1,
+		"page_cache": 1, "audio_cache": 1, "partial_audio": 1, "seen_updates": 1,
 	} {
 		if got := count(table); got != want {
 			t.Errorf("%s: %d rows, want %d", table, got, want)

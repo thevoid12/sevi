@@ -42,3 +42,51 @@ func splitSentences(p string, n int) []string {
 	}
 	return out
 }
+
+// SplitHalf cuts s into two parts of about equal length at the sentence end
+// nearest the middle (a space if there is no sentence end). ok is false when s is
+// too short to cut.
+func SplitHalf(s string) (a, b string, ok bool) {
+	r := []rune(s)
+	if len(r) < 2 {
+		return "", "", false
+	}
+	mid := len(r) / 2
+	best, bestDist := -1, len(r)
+	consider := func(i int) { // cut after rune i-1
+		if i <= 0 || i >= len(r) {
+			return
+		}
+		if d := abs(i - mid); d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	for i := range r {
+		switch r[i] {
+		case '.', '!', '?', '。', '！', '？', '\n':
+			consider(i + 1)
+		}
+	}
+	if best < 0 { // no sentence end: cut at a space
+		for i := range r {
+			if r[i] == ' ' {
+				consider(i + 1)
+			}
+		}
+	}
+	if best < 0 {
+		best = mid // one unbroken run
+	}
+	a, b = strings.TrimSpace(string(r[:best])), strings.TrimSpace(string(r[best:]))
+	if a == "" || b == "" {
+		return "", "", false
+	}
+	return a, b, true
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}

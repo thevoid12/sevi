@@ -89,6 +89,21 @@ type PageCache struct {
 	Title     sql.NullString
 }
 
+type PartialAudio struct {
+	ID          string
+	UrlHash     string
+	TtsModel    string
+	Voice       string
+	TotalChunks int64
+	DoneChunks  int64
+	AudioKey    string
+	CostUsd     float64
+	CreatedOn   time.Time
+	CreatedBy   sql.NullString
+	UpdatedOn   sql.NullTime
+	UpdatedBy   sql.NullString
+}
+
 type Pending struct {
 	ID        string
 	SessionID string

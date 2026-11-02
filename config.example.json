@@ -29,11 +29,20 @@
     },
     "tts": {
       "provider": "openrouter",
-      "model": "google/gemini-3.8-flash-tts",
+      "model": "google/gemini-3.8-flash-lite-tts",
       "voice": "Kore",
       "chunk_chars": 3000,
       "chars_per_minute": 950,
-      "audio_tokens_per_sec": 25
+      "audio_tokens_per_sec": 25,
+      "fallbacks": [
+        {
+          "model": "google/gemini-3.8-flash-tts",
+          "voice": "Kore"
+        },
+        {
+          "model": "bytedance-seed/seed-audio-1-0"
+        }
+      ]
     }
   },
   "reply": {

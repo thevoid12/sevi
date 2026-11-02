@@ -40,11 +40,8 @@ func (a *app) newCore() (*core.Core, error) {
 
 	d := core.Deps{
 		Service: a.Service,
-		TTS: &provider.OpenRouterTTS{
-			BaseURL: ttsURL, Key: ttsKey, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
-			Retries: cfg.GetInt("app.retries"), Log: log,
-		},
-		LLM: &provider.Retrying{LLM: provider.NewOpenAICompatLLM(llmURL, llmKey, cfg.GetString("models.llm.model"), 0), Retries: cfg.GetInt("app.retries"), Log: log},
+		TTS:     a.newTTS(ttsURL, ttsKey),
+		LLM:     &provider.Retrying{LLM: provider.NewOpenAICompatLLM(llmURL, llmKey, cfg.GetString("models.llm.model"), 0), Retries: cfg.GetInt("app.retries"), Log: log},
 		Markdown: func(ctx context.Context, pageURL string) (string, error) {
 			return fetch.Markdown(ctx, jinaURL, jinaKey, pageURL)
 		},
@@ -85,4 +82,29 @@ func (a *app) newCore() (*core.Core, error) {
 	}
 	d.Prices = book
 	return core.New(d), nil
+}
+
+// newTTS builds the speech model: the main one with its retries, and the
+// optional models.tts.fallbacks ([{"model": "...", "voice": "..."}], same provider; no voice means none is sent)
+// that take over for a piece the main model cannot produce even after the
+// chunk was split (see provider.Resilient).
+func (a *app) newTTS(baseURL, key string) provider.TTS {
+	cfg, log := a.Cfg, a.Log
+	primary := &provider.OpenRouterTTS{
+		BaseURL: baseURL, Key: key, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
+		Retries: cfg.GetInt("app.retries"), Log: log,
+	}
+	r := &provider.Resilient{Primary: primary, Log: log}
+	var fallbacks []struct{ Model, Voice string }
+	if err := cfg.UnmarshalKey("models.tts.fallbacks", &fallbacks); err != nil {
+		log.Warnw("models.tts.fallbacks is not a list of {model, voice}; ignoring it", "err", err)
+	}
+	for _, fb := range fallbacks {
+		if fb.Model == "" {
+			continue
+		}
+		// An empty voice is sent as no voice, for models that take none.
+		r.Fallbacks = append(r.Fallbacks, &provider.OpenRouterTTS{BaseURL: baseURL, Key: key, Model: fb.Model, Voice: fb.Voice, Log: log})
+	}
+	return r
 }

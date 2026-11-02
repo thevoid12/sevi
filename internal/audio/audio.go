@@ -70,6 +70,21 @@ func PCMToOpus(ctx context.Context, pcm []byte) ([]byte, error) {
 		[]string{"-c:a", "libopus", "-b:a", "32k", "-application", "voip"}, "ogg")
 }
 
+// PCMToCheckpoint compresses PCM speech to Opus for keeping a half-done job in
+// storage: about a tenth of the size of the raw PCM, at a quality close enough
+// for a blog (the final MP3 is encoded from it, so this is a second lossy step).
+func PCMToCheckpoint(ctx context.Context, pcm []byte) ([]byte, error) {
+	return runFFmpeg(ctx, pcm,
+		[]string{"-f", "s16le", "-ar", fmt.Sprint(sampleRate), "-ac", fmt.Sprint(channels)},
+		[]string{"-c:a", "libopus", "-b:a", "32k", "-application", "audio"}, "ogg")
+}
+
+// CheckpointToPCM turns audio made by PCMToCheckpoint back into PCM.
+func CheckpointToPCM(ctx context.Context, in []byte) ([]byte, error) {
+	return runFFmpeg(ctx, in, nil,
+		[]string{"-f", "s16le", "-ar", fmt.Sprint(sampleRate), "-ac", fmt.Sprint(channels)}, "raw")
+}
+
 // runFFmpeg writes in to a temp file, converts it, and returns the output.
 // Files rather than pipes so the output is seekable and gets correct headers.
 // inOpts go before -i (describing the input), outOpts after it.

@@ -5,7 +5,7 @@
 -- sees the new time and finds nothing due.
 -- A session is old when its newest activity (its own row or any message) is old;
 -- its messages, thread links, pending items and ledger rows go with it.
--- Caches and seen ids are old by their own age. Prices have their own refresh.
+-- Caches, partial audio and seen ids are old by their own age. Prices have their own refresh.
 WITH due AS (
     UPDATE maintenance SET last_pruned_on = now()
     WHERE id = 'prune'
@@ -33,6 +33,10 @@ d_pages AS (
 ),
 d_audio AS (
     DELETE FROM audio_cache
+    WHERE EXISTS (SELECT 1 FROM due) AND created_on < now() - ($1::int * interval '1 day')
+),
+d_partial AS (
+    DELETE FROM partial_audio
     WHERE EXISTS (SELECT 1 FROM due) AND created_on < now() - ($1::int * interval '1 day')
 ),
 d_seen AS (

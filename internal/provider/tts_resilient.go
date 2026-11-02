@@ -1,0 +1,141 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"go.uber.org/zap"
+
+	"sevi/internal/fetch"
+	"sevi/internal/httpx"
+	"sevi/internal/logx"
+)
+
+// maxSplitDepth: a chunk that fails is cut into halves, and a half that fails
+// into quarters. Quarters are not cut further; they go to the fallback models.
+const maxSplitDepth = 2
+
+// Resilient wraps a TTS so one stubborn chunk does not fail the whole job.
+//
+//  1. The chunk is tried on Primary with its normal retries.
+//  2. If the provider keeps failing (a 5xx or an empty audio stream, which
+//     usually depends on the text), the chunk is cut at a sentence into two
+//     halves, each tried once. A half that fails is cut again into quarters,
+//     each tried once. Pieces are not retried: that would take too long.
+//  3. A quarter that still fails is tried once on each fallback model in order.
+//
+// Only the piece that failed is cut or moved; the rest of the chunk stays on the
+// primary model and voice. A fallback piece has another voice.
+type Resilient struct {
+	Primary   *OpenRouterTTS
+	Fallbacks []*OpenRouterTTS
+	Log       *zap.SugaredLogger
+}
+
+func (r *Resilient) Synth(ctx context.Context, text string) (Speech, error) {
+	sp, err := r.Primary.Synth(ctx, text)
+	if err == nil || !splittable(ctx, err) {
+		return sp, err
+	}
+	a, b, ok := fetch.SplitHalf(text)
+	if !ok {
+		sp, err = r.fallback(ctx, text, err)
+		r.recovered(ctx, sp, err)
+		return sp, err
+	}
+	logx.With(ctx, r.Log).Warnw("tts chunk failed, splitting it in two", "model", r.Primary.Model, "chars", len([]rune(text)), "err", err)
+	sp, err = r.join(ctx, 1, a, b)
+	r.recovered(ctx, sp, err)
+	return sp, err
+}
+
+// join speaks the pieces in order and returns them as one Speech.
+func (r *Resilient) join(ctx context.Context, depth int, pieces ...string) (Speech, error) {
+	var out Speech
+	for _, piece := range pieces {
+		sp, err := r.piece(ctx, piece, depth)
+		if err != nil {
+			return Speech{}, err
+		}
+		out.PCM = append(out.PCM, sp.PCM...)
+		out.Parts = append(out.Parts, sp.parts(r.Primary.Model, piece)...)
+	}
+	return out, nil
+}
+
+// piece tries text once on the primary model, then splits it (depth < max) or
+// moves it to the fallbacks.
+func (r *Resilient) piece(ctx context.Context, text string, depth int) (Speech, error) {
+	once := *r.Primary
+	once.Retries = 0
+	sp, err := once.Synth(ctx, text)
+	if err == nil || !splittable(ctx, err) {
+		return sp, err
+	}
+	if depth < maxSplitDepth {
+		if a, b, ok := fetch.SplitHalf(text); ok {
+			logx.With(ctx, r.Log).Warnw("tts piece failed, splitting it again", "model", r.Primary.Model, "chars", len([]rune(text)), "err", err)
+			return r.join(ctx, depth+1, a, b)
+		}
+	}
+	return r.fallback(ctx, text, err)
+}
+
+// fallback tries each fallback model once. It returns the primary error when
+// there is none or all fail.
+func (r *Resilient) fallback(ctx context.Context, text string, cause error) (Speech, error) {
+	for _, fb := range r.Fallbacks {
+		one := *fb
+		one.Retries = 0
+		logx.With(ctx, r.Log).Warnw("tts piece failed on the primary model, trying a fallback", "from", r.Primary.Model, "to", fb.Model, "voice", fb.Voice, "chars", len([]rune(text)))
+		sp, err := one.Synth(ctx, text)
+		if err == nil {
+			logx.With(ctx, r.Log).Infow("tts fallback worked", "model", fb.Model, "chars", len([]rune(text)))
+			sp.Parts = sp.parts(fb.Model, text)
+			return sp, nil
+		}
+		if ctx.Err() != nil {
+			return Speech{}, ctx.Err()
+		}
+		logx.With(ctx, r.Log).Warnw("tts fallback failed", "model", fb.Model, "err", err)
+	}
+	return Speech{}, fmt.Errorf("%w (also tried %d fallback model(s))", cause, len(r.Fallbacks))
+}
+
+// recovered logs how a chunk that failed on the first try ended up: done in
+// several pieces (and on which models), or not at all.
+func (r *Resilient) recovered(ctx context.Context, sp Speech, err error) {
+	log := logx.With(ctx, r.Log)
+	if err != nil {
+		log.Errorw("tts chunk could not be made, even split up and on the fallback models", "fallbacks", len(r.Fallbacks), "err", err)
+		return
+	}
+	models := map[string]int{}
+	for _, p := range sp.Parts {
+		models[p.Model]++
+	}
+	log.Infow("tts chunk made in pieces", "pieces", len(sp.Parts), "pieces_per_model", models)
+}
+
+// parts is the call list of a Speech: its own Parts, or the one call it was.
+func (s Speech) parts(model, text string) []SpeechPart {
+	if len(s.Parts) > 0 {
+		return s.Parts
+	}
+	return []SpeechPart{{Model: model, GenerationID: s.GenerationID, Chars: len([]rune(text)), PCM: s.PCM}}
+}
+
+// splittable reports whether cutting the text up could help: the provider failed
+// on this input (5xx or no audio). Rate limits, bad keys and cancelled requests
+// would fail the same way for every piece, so they are not split.
+func splittable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, ErrEmptyAudio) {
+		return true
+	}
+	var se *httpx.StatusError
+	return errors.As(err, &se) && se.Code >= 500
+}

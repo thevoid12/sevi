@@ -234,6 +234,26 @@ func (s *Store) PutAudio(ctx context.Context, urlHash, ttsModel, voice, audioKey
 	return s.q.PutAudio(ctx, db.PutAudioParams{ID: newID(), UrlHash: urlHash, TtsModel: ttsModel, Voice: voice, AudioKey: audioKey, Seconds: int64(seconds)})
 }
 
+// GetPartial returns the saved audio of an unfinished job for this link, voice
+// and model; ErrNotFound if there is none.
+func (s *Store) GetPartial(ctx context.Context, urlHash, ttsModel, voice string) (model.PartialAudio, error) {
+	r, err := s.q.GetPartial(ctx, db.GetPartialParams{UrlHash: urlHash, TtsModel: ttsModel, Voice: voice})
+	return r, notFound(err)
+}
+
+// PutPartial records that doneChunks of totalChunks are saved at audioKey, having
+// cost costUSD so far,
+// replacing any earlier record for the same link, voice and model.
+func (s *Store) PutPartial(ctx context.Context, urlHash, ttsModel, voice string, totalChunks, doneChunks int, audioKey string, costUSD float64) error {
+	return s.q.PutPartial(ctx, db.PutPartialParams{ID: newID(), UrlHash: urlHash, TtsModel: ttsModel, Voice: voice,
+		TotalChunks: int64(totalChunks), DoneChunks: int64(doneChunks), AudioKey: audioKey, CostUsd: costUSD})
+}
+
+// DeletePartial forgets the saved audio once the job has finished.
+func (s *Store) DeletePartial(ctx context.Context, urlHash, ttsModel, voice string) error {
+	return s.q.DeletePartial(ctx, db.DeletePartialParams{UrlHash: urlHash, TtsModel: ttsModel, Voice: voice})
+}
+
 func nullStr(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
 
 func (s *Store) AddMessage(ctx context.Context, m model.NewMessage) (model.Message, error) {
