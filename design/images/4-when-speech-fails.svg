@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 960" width="1100" height="960" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="960" fill="#ffffff"/>
+<text x="550.0" y="47.0" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">When speech fails</text>
+<text x="550" y="69.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">Base model: gemini-3.8-flash-lite-tts</text>
+<rect x="100" y="100" width="460" height="64" rx="12" fill="#ffc9c9" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="132.0" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A chunk (about 3 minutes of audio) fails</text>
+<rect x="100" y="195" width="460" height="64" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="216.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Retry the same chunk up to</text>
+<text x="330.0" y="237.4" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">4 more times, waiting longer each time</text>
+<rect x="100" y="290" width="460" height="64" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="311.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Still failing? Cut it into 2 halves</text>
+<text x="330.0" y="332.40000000000003" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Try each half once. No retries.</text>
+<rect x="100" y="385" width="460" height="64" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="406.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A half fails? Cut it into quarters</text>
+<text x="330.0" y="427.40000000000003" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Try each quarter once.</text>
+<rect x="100" y="480" width="460" height="84" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="501.2" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A quarter fails? Try the fallback models,</text>
+<text x="330.0" y="522.0" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">one try each: gemini-3.8-flash-tts,</text>
+<text x="330.0" y="542.8" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">then seed-audio-1-0</text>
+<polyline points="330.0,164 330.0,195" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="330.0,259 330.0,290" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="330.0,354 330.0,385" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="330.0,449 330.0,480" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="660" y="195" width="330" height="370" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="825.0" y="302.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Chunk done</text>
+<text x="825.0" y="321.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e"></text>
+<text x="825.0" y="341.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Only the piece that failed</text>
+<text x="825.0" y="360.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">was cut or moved.</text>
+<text x="825.0" y="380.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">The next chunk goes back</text>
+<text x="825.0" y="399.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">to the base model.</text>
+<text x="825.0" y="419.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e"></text>
+<text x="825.0" y="438.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A fallback piece has a</text>
+<text x="825.0" y="458.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">different voice.</text>
+<polyline points="560,227 660,227" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="610" y="213.0" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">works</text>
+<polyline points="560,322 660,322" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="610" y="308.0" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">works</text>
+<polyline points="560,417 660,417" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="610" y="403.0" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">works</text>
+<polyline points="560,522 660,522" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="610" y="508.0" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">works</text>
+<rect x="100" y="620" width="460" height="64" rx="12" fill="#ffc9c9" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330.0" y="652.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Everything failed</text>
+<polyline points="330.0,564 330.0,620" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="355.0" y="592.0" font-size="13" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">no</text>
+<rect x="40" y="760" width="330" height="100" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="205.0" y="790.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Send the audio made so far</text>
+<text x="205.0" y="810.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">with a note:</text>
+<text x="205.0" y="829.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">&quot;only the first N of M parts&quot;</text>
+<rect x="400" y="760" width="330" height="100" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="565.0" y="790.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Save progress</text>
+<text x="565.0" y="810.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Opus audio in R2, one row in Neon</text>
+<text x="565.0" y="829.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(chunks done, cost so far)</text>
+<polyline points="220,684 205,760" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="440,684 565,760" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="220" y="890" width="340" height="50" rx="12" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="390.0" y="915.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Send the same link again: it continues</text>
+<polyline points="565,860 500,890" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="205,860 260,890" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="850" y="646.5" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">If the first chunk fails there is</text>
+<text x="850" y="663.4" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">nothing to send: you get the</text>
+<text x="850" y="680.3" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">error message instead.</text>
+<text x="850" y="697.2" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555"></text>
+<text x="850" y="714.1" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">If the server is stopping, progress</text>
+<text x="850" y="731.0" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">is saved but nothing is sent.</text>
+</svg>

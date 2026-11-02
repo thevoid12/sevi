@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 640" width="1100" height="640" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="640" fill="#ffffff"/>
+<text x="550.0" y="47.0" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Where data lives, and how long</text>
+<rect x="30" y="70" width="540" height="390" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="300.0" y="90.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Neon Postgres</text>
+<rect x="50" y="120" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="170.0" y="150.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">conversations</text>
+<text x="170.0" y="169.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">sessions, messages, threads</text>
+<rect x="310" y="120" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="430.0" y="150.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">costs</text>
+<text x="430.0" y="169.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">one row per model call</text>
+<rect x="50" y="215" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="170.0" y="245.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">caches</text>
+<text x="170.0" y="264.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">blog text, finished audio</text>
+<rect x="310" y="215" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="430.0" y="245.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">partial audio</text>
+<text x="430.0" y="264.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">progress of a failed job</text>
+<rect x="50" y="310" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="170.0" y="340.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">pending</text>
+<text x="170.0" y="359.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">yes / no cost questions</text>
+<rect x="310" y="310" width="240" height="80" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="430.0" y="331.8" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">housekeeping</text>
+<text x="430.0" y="350.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">seen updates, model prices,</text>
+<text x="430.0" y="368.2" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">last cleanup time</text>
+<text x="300" y="421.5" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">Only the names of audio files are stored here.</text>
+<rect x="620" y="70" width="450" height="150" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="845.0" y="90.0" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloudflare R2</text>
+<text x="845.0" y="110.8" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e"></text>
+<text x="845.0" y="131.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">the audio files: blog MP3s,</text>
+<text x="845.0" y="152.4" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">voice-note answers, saved progress</text>
+<rect x="620" y="260" width="450" height="60" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="845.0" y="279.6" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">retention_days = 7</text>
+<text x="845.0" y="300.40000000000003" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">one value, in config.prod.json</text>
+<rect x="620" y="360" width="215" height="140" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="727.5" y="402.7" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">R2</text>
+<text x="727.5" y="420.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloudflare deletes files</text>
+<text x="727.5" y="439.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">older than that</text>
+<text x="727.5" y="457.29999999999995" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(a rule made by Pulumi)</text>
+<rect x="855" y="360" width="215" height="140" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="962.5" y="393.6" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Neon</text>
+<text x="962.5" y="411.8" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">On a request, if the last</text>
+<text x="962.5" y="430.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">cleanup is older than that,</text>
+<text x="962.5" y="448.20000000000005" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">delete everything older,</text>
+<text x="962.5" y="466.40000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">in one transaction</text>
+<polyline points="727,320 727,360" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="962,320 962,360" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="540" width="1040" height="70" rx="12" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="575.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A cached row whose audio file has expired is simply remade the next time that link is shared.</text>
+</svg>

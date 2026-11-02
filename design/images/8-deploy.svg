@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 520" width="1100" height="520" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="520" fill="#ffffff"/>
+<text x="550.0" y="47.0" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Deploying with one command</text>
+<rect x="30" y="80" width="160" height="70" rx="12" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="110.0" y="115.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">make infra_up</text>
+<rect x="240" y="70" width="230" height="90" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="355.0" y="95.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Build</text>
+<text x="355.0" y="115.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">static Go binary, then</text>
+<text x="355.0" y="134.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">the Docker image</text>
+<rect x="520" y="80" width="220" height="70" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="630.0" y="105.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Pulumi</text>
+<text x="630.0" y="124.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">runs on your machine</text>
+<polyline points="190,115 240,115" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="470,115 520,115" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="250" width="400" height="240" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="230.0" y="270.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Google Cloud</text>
+<rect x="50" y="295" width="360" height="175" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="1"/>
+<text x="230.0" y="327.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• project and APIs</text>
+<text x="230.0" y="346.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• Artifact Registry (the image)</text>
+<text x="230.0" y="364.29999999999995" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• Secret Manager (one JSON)</text>
+<text x="230.0" y="382.5" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• Cloud Run (0 to 1 instance)</text>
+<text x="230.0" y="400.7" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• API Gateway and API key</text>
+<text x="230.0" y="418.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• budget alert (1 cent, 50%, 100% of $1)</text>
+<text x="230.0" y="437.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• 7-day log retention</text>
+<rect x="450" y="250" width="300" height="240" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="600.0" y="270.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloudflare</text>
+<rect x="470" y="295" width="260" height="120" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="1"/>
+<text x="600.0" y="327.7" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• R2 bucket for audio</text>
+<text x="600.0" y="345.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• lifecycle: delete after</text>
+<text x="600.0" y="364.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">  retention_days</text>
+<text x="600.0" y="382.29999999999995" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• a token limited to the bucket</text>
+<rect x="770" y="250" width="300" height="240" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="920.0" y="270.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Neon and Telegram</text>
+<rect x="790" y="295" width="260" height="175" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="1"/>
+<text x="920.0" y="346.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• apply the database schema</text>
+<text x="920.0" y="364.3" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">  (the Neon project itself was</text>
+<text x="920.0" y="382.5" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">  made by hand)</text>
+<text x="920.0" y="400.70000000000005" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">• point the Telegram webhook</text>
+<text x="920.0" y="418.90000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">  at the gateway</text>
+<polyline points="580,150 230,250" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="630,150 600,250" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="680,150 920,250" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+</svg>

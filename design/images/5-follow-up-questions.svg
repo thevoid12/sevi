@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 560" width="1100" height="560" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="560" fill="#ffffff"/>
+<text x="550.0" y="47.0" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Follow-up questions, by voice or text</text>
+<rect x="30" y="100" width="230" height="90" rx="12" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="145.0" y="135.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">You reply to a bot message</text>
+<text x="145.0" y="154.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">with a voice note or text</text>
+<rect x="305" y="100" width="230" height="90" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="420.0" y="125.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Find the conversation</text>
+<text x="420.0" y="145.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(which message you</text>
+<text x="420.0" y="164.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">replied to)</text>
+<rect x="580" y="100" width="230" height="90" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="695.0" y="125.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Load context from Neon</text>
+<text x="695.0" y="145.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">recent messages, summary,</text>
+<text x="695.0" y="164.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">the blog text</text>
+<rect x="855" y="100" width="215" height="90" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="962.5" y="125.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Chat model answers</text>
+<text x="962.5" y="145.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(it also understands</text>
+<text x="962.5" y="164.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">your audio)</text>
+<polyline points="260,145 305,145" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="535,145 580,145" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="810,145 855,145" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="962,190 962,300" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="855" y="300" width="215" height="110" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="962.5" y="325.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Spoken answer?</text>
+<text x="962.5" y="345.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">yes: speech model, sent as</text>
+<text x="962.5" y="364.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">a Telegram voice note</text>
+<text x="962.5" y="384.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">no: plain text</text>
+<rect x="580" y="300" width="230" height="110" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="695.0" y="335.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Save the message and the cost</text>
+<text x="695.0" y="355.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">in Neon, so the next reply</text>
+<text x="695.0" y="374.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">can continue from it</text>
+<rect x="305" y="300" width="230" height="110" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="420.0" y="345.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Telegram shows it as a reply</text>
+<text x="420.0" y="364.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">that you can reply to again</text>
+<polyline points="855,355 810,355" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="580,355 535,355" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="460" width="1040" height="70" rx="12" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="485.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A long history (over 100,000 characters) is summarised so the model stays cheap.</text>
+<text x="550.0" y="504.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Each blog is its own conversation, so different blogs run in parallel.</text>
+</svg>

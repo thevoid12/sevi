@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 580" width="1100" height="580" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="580" fill="#ffffff"/>
+<text x="550.0" y="47.0" font-size="26" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">sevi: the big picture</text>
+<rect x="30" y="250" width="140" height="80" rx="12" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="100.0" y="279.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">You</text>
+<text x="100.0" y="300.40000000000003" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(Telegram app)</text>
+<rect x="270" y="250" width="150" height="80" rx="12" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="345.0" y="279.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">API Gateway</text>
+<text x="345.0" y="300.40000000000003" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">checks the API key</text>
+<rect x="470" y="80" width="330" height="450" rx="12" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="635.0" y="100.0" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloud Run: sevi</text>
+<text x="635.0" y="120.8" font-size="16" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">wakes on a message, sleeps when idle</text>
+<rect x="500" y="160" width="270" height="70" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="635.0" y="184.6" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Telegram adapter</text>
+<text x="635.0" y="205.4" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">checks the sender, drops repeats</text>
+<rect x="500" y="280" width="270" height="100" rx="12" fill="#ffffff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="635.0" y="309.2" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Core</text>
+<text x="635.0" y="330.0" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">jobs, cost, caches,</text>
+<text x="635.0" y="350.8" font-size="16" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">follow-up conversations</text>
+<rect x="500" y="430" width="270" height="70" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="635.0" y="455.9" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Secrets: one JSON,</text>
+<text x="635.0" y="474.09999999999997" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">read from Secret Manager at start</text>
+<rect x="900" y="90" width="180" height="90" rx="12" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="990.0" y="115.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Neon Postgres</text>
+<text x="990.0" y="135.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">conversations, caches,</text>
+<text x="990.0" y="154.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">costs</text>
+<rect x="900" y="210" width="180" height="80" rx="12" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="990.0" y="240.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cloudflare R2</text>
+<text x="990.0" y="259.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">audio files</text>
+<rect x="900" y="320" width="180" height="90" rx="12" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="990.0" y="345.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">OpenRouter</text>
+<text x="990.0" y="365.0" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">chat model and</text>
+<text x="990.0" y="384.5" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">speech models</text>
+<rect x="900" y="440" width="180" height="80" rx="12" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2"/>
+<text x="990.0" y="470.25" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Jina Reader</text>
+<text x="990.0" y="489.75" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">web page to text</text>
+<polyline points="170,290 270,290" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="220" y="268.0" font-size="14" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">message</text>
+<polyline points="420,290 450,290 450,195 500,195" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="345" y="351.5" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">Cloud Run is private:</text>
+<text x="345" y="368.4" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">only the gateway may call it</text>
+<polyline points="635,230 635,280" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<text x="700" y="255.0" font-size="14" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e" stroke="#fff" stroke-width="5" paint-order="stroke">internal API</text>
+<polyline points="770,300 900,135" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="770,325 900,250" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="770,350 900,365" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="770,372 900,480" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="635,430 635,380" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#a)"/>
+<text x="100" y="356.5" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">Audio and answers come</text>
+<text x="100" y="373.4" font-size="13" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#555">back the same way</text>
+</svg>
