@@ -70,7 +70,7 @@ func TestFailedLinkContinuesFromTheSavedChunk(t *testing.T) {
 	if v.Status != Done || len(v.Parts) != 1 || v.Parts[0].Type != "audio" {
 		t.Fatalf("want a Done job with the partial audio, got %s %+v (events %+v)", v.Status, v.Parts, v.Events)
 	}
-	if n := v.Parts[0].Note; !strings.Contains(n, "Only the first 1 of 2 parts") || !strings.Contains(n, "send the link again") && !strings.Contains(n, "Send the link again") {
+	if n := v.Parts[0].Note; !strings.Contains(n, "Only the first 5") || !strings.Contains(n, "%") || !strings.Contains(n, "Send the link again") {
 		t.Errorf("the note should say it is partial and how to continue: %q", n)
 	}
 	if v.Parts[0].Seconds != 1 || v.Parts[0].CostUSD == nil || *v.Parts[0].CostUSD <= 0 {
@@ -80,14 +80,15 @@ func TestFailedLinkContinuesFromTheSavedChunk(t *testing.T) {
 		t.Errorf("partial audio must not be cached as the finished one: %v", err)
 	}
 	p, err := st.GetPartial(context.Background(), store.URLHash(url), "m", "v")
-	if err != nil || p.DoneChunks != 1 || p.TotalChunks != 2 {
+	// The row counts characters: about half of the text is done.
+	if err != nil || p.TotalChunks < 5000 || p.DoneChunks < 2000 || p.DoneChunks > p.TotalChunks-2000 {
 		t.Fatalf("partial row: %+v, %v", p, err)
 	}
 	if p.CostUsd <= 0 {
 		t.Errorf("the saved partial must remember what the done chunk cost: %v", p.CostUsd)
 	}
 	if small, err := objects.Get(context.Background(), p.AudioKey); err != nil || len(small) == 0 || len(small) >= 48000/4 {
-		t.Fatalf("the saved audio should be compressed (raw would be 48000 bytes): %d bytes, %v", len(small), err)
+		t.Fatalf("the saved checkpoint should be compressed (raw would be 48000 bytes): %d bytes, %v", len(small), err)
 	}
 
 	// Sharing again: no cost prompt, only the missing chunk is made.
@@ -109,5 +110,59 @@ func TestFailedLinkContinuesFromTheSavedChunk(t *testing.T) {
 	}
 	if _, err := st.GetPartial(context.Background(), store.URLHash(url), "m", "v"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("the saved partial should be cleared after success: %v", err)
+	}
+}
+
+// A half-done blog is continued even when the chunk size has changed since: the
+// finished range is kept, and only the missing text is split again at the new size.
+func TestResumeSurvivesAChunkSizeChange(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	log := zap.NewNop().Sugar()
+	st := storetest.Open(t, log)
+	cfg := viper.New()
+	cfg.Set("models.tts.provider", "p")
+	cfg.Set("models.tts.model", "m")
+	cfg.Set("models.tts.voice", "v")
+	cfg.Set("models.tts.chunk_chars", 3000)
+	cfg.Set("models.llm.provider", "p")
+	cfg.Set("models.llm.model", "llm-m")
+	cfg.Set("cost.confirm_over_usd", 100.0)
+	tts := &fakeTTS{failAt: 2}
+	prices := &pricing.Book{Store: st, TTL: time.Hour, Log: log,
+		Sources: map[string]pricing.Source{"p": func(context.Context) (map[string]provider.Price, error) {
+			return map[string]provider.Price{"m": {Prompt: 1e-6, Completion: 1e-4}, "llm-m": {}}, nil
+		}}}
+	c := New(Deps{
+		Service: &model.Service{Cfg: cfg, Store: st, Objects: objectstore.Local{Root: t.TempDir() + "/objects"}, Log: log},
+		TTS:     tts, LLM: fakeLLM{}, Prices: prices,
+		Markdown: func(context.Context, string) (string, error) { return page("Change Size", 5700), nil },
+	})
+	t.Cleanup(c.Close)
+	send := func() JobView {
+		t.Helper()
+		j, err := c.Handle(reqid.With(context.Background(), "ref-size"), Message{Parts: []Part{{Type: "url", URL: "https://blog.example/size"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return waitDone(t, j)
+	}
+	if v := send(); v.Status != Done || !strings.Contains(v.Parts[0].Note, "Only the first") {
+		t.Fatalf("first run should end partial: %s %+v", v.Status, v.Parts)
+	}
+
+	// Smaller chunks now: the remaining ~2700 characters are split into 3 chunks of at most 1000.
+	cfg.Set("models.tts.chunk_chars", 1000)
+	before := tts.calls.Load()
+	v := send()
+	if v.Status != Done || v.Parts[0].Note != "" {
+		t.Fatalf("second run: %s %+v (events %+v)", v.Status, v.Parts, v.Events)
+	}
+	if made := tts.calls.Load() - before; made != 3 {
+		t.Errorf("tts calls on resume = %d, want 3 (only the missing text, at the new size)", made)
+	}
+	if v.Parts[0].Seconds != 4 { // the saved chunk plus 3 new ones, one second each
+		t.Errorf("seconds = %d, want 4", v.Parts[0].Seconds)
 	}
 }

@@ -30,6 +30,39 @@ type (
 	SessionCost  = db.SessionCostRow
 )
 
+// Span is a chunk of the article with its position: Text is spoken, and
+// [Start, End) are rune offsets into the cleaned text. The spans of one call
+// tile the range they cover exactly (each ends where the next starts), so a
+// range that was spoken earlier can be recognised and skipped later, whatever
+// chunk size is used then.
+type Span struct {
+	Start, End int
+	Text       string
+}
+
+// SpeechSeg is the speech made for the text range [Start, End) (rune offsets
+// into the cleaned article) as PCM. Segments are independent of the chunk size
+// that made them: a later run re-splits whatever is missing at its own size.
+type SpeechSeg struct {
+	Start, End int
+	PCM        []byte
+}
+
+// CheckpointMeta is the table stored in a checkpoint next to the audio: which
+// ranges of which text are finished. See core/checkpoint.go for the format.
+type CheckpointMeta struct {
+	TextHash string    `json:"text_hash"`
+	TextLen  int       `json:"text_len"`
+	Ranges   []RangeMs `json:"ranges"`
+}
+
+// RangeMs is one finished range of the text and the length of its audio.
+type RangeMs struct {
+	Start int `json:"start"` // rune offset into the cleaned text
+	End   int `json:"end"`
+	Ms    int `json:"ms"` // length of the audio for this range
+}
+
 // LedgerEntry is a provider call that just succeeded. Units are tokens.
 // CostUSD is nil when the model's price could not be determined.
 type LedgerEntry struct {

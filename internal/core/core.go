@@ -48,13 +48,19 @@ type Core struct {
 	// blogLocks makes the same blog (link + speech model + voice) be spoken once
 	// at a time: a second request for it waits, then finds the audio ready.
 	blogLocks keyedLock
+	// ttsSlots limits speech calls in flight across all jobs (models.tts.concurrency).
+	ttsSlots chan struct{}
 	// sessionLocks keeps two questions in one conversation from summarising it at once.
 	sessionLocks keyedLock
 }
 
 func New(d Deps) *Core {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Core{Deps: d, ctx: ctx, cancel: cancel, jobs: map[string]*Job{}, blogLocks: keyedLock{held: map[string]chan struct{}{}}, sessionLocks: keyedLock{held: map[string]chan struct{}{}}}
+	slots := 1
+	if d.Service != nil && d.Cfg != nil {
+		slots = max(1, d.Cfg.GetInt("models.tts.concurrency"))
+	}
+	return &Core{Deps: d, ctx: ctx, cancel: cancel, ttsSlots: make(chan struct{}, slots), jobs: map[string]*Job{}, blogLocks: keyedLock{held: map[string]chan struct{}{}}, sessionLocks: keyedLock{held: map[string]chan struct{}{}}}
 }
 
 // Close cancels running jobs and waits briefly for them to stop.

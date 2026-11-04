@@ -39,6 +39,8 @@ func setDefaults(c *Config) {
 	c.SetDefault("api.token_ttl_seconds", 300)
 	c.SetDefault("api.allow_remote_listen", false)
 	c.SetDefault("models.tts.chars_per_minute", 950)
+	// Speech calls in flight at once, across all jobs. More is faster but risks the provider's rate limit.
+	c.SetDefault("models.tts.concurrency", 3)
 	c.SetDefault("models.tts.audio_tokens_per_sec", 25)
 	c.SetDefault("cost.price_ttl_days", 7)
 	// Data older than this is deleted: R2 audio (by the deploy), database rows (by the app).

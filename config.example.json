@@ -36,6 +36,7 @@
       "chars_per_minute": 950,
       "audio_tokens_per_sec": 25,
       "retries": 2,
+      "concurrency": 3,
       "fallbacks": [
         {
           "model": "mistralai/voxtral-mini-tts-3-0",

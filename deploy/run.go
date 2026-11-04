@@ -47,9 +47,14 @@ func newService(ctx *pulumi.Context, s settings, g *google, image pulumi.StringO
 			Containers: cloudrunv2.ServiceTemplateContainerArray{&cloudrunv2.ServiceTemplateContainerArgs{
 				Image: image,
 				Ports: &cloudrunv2.ServiceTemplateContainerPortsArgs{ContainerPort: pulumi.Int(8080)},
-				Envs: cloudrunv2.ServiceTemplateContainerEnvArray{&cloudrunv2.ServiceTemplateContainerEnvArgs{
-					Name: pulumi.String("SEVI_SECRETS_NAME"), Value: pulumi.Sprintf("%s/versions/latest", g.secret.Name),
-				}},
+				Envs: cloudrunv2.ServiceTemplateContainerEnvArray{
+					&cloudrunv2.ServiceTemplateContainerEnvArgs{
+						Name: pulumi.String("SEVI_SECRETS_NAME"), Value: pulumi.Sprintf("%s/versions/latest", g.secret.Name),
+					},
+					// A soft limit under the 1 GiB container: near it the Go runtime collects
+					// garbage harder instead of letting a long blog's audio push the process over.
+					&cloudrunv2.ServiceTemplateContainerEnvArgs{Name: pulumi.String("GOMEMLIMIT"), Value: pulumi.String("800MiB")},
+				},
 				Resources: &cloudrunv2.ServiceTemplateContainerResourcesArgs{
 					Limits:          pulumi.StringMap{"cpu": pulumi.String("1"), "memory": pulumi.String("1Gi")},
 					CpuIdle:         pulumi.Bool(false), // CPU always allocated (instance-based billing)

@@ -78,7 +78,7 @@ func TestStopSendsWhatIsMadeSoFar(t *testing.T) {
 	if v.Status != Done || len(v.Parts) != 1 || v.Parts[0].Type != "audio" {
 		t.Fatalf("want Done with the partial audio, got %s %+v (events %+v)", v.Status, v.Parts, v.Events)
 	}
-	if n := v.Parts[0].Note; !strings.HasPrefix(n, "Stopped.") || !strings.Contains(n, "first 1 of 2 parts") {
+	if n := v.Parts[0].Note; !strings.HasPrefix(n, "Stopped.") || !strings.Contains(n, "first 5") || !strings.Contains(n, "%") {
 		t.Errorf("note: %q", n)
 	}
 	if c.StopJob(j.ID) {

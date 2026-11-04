@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" width="1100" height="620" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<rect width="1100" height="620" fill="#ffffff"/>
+<text x="550" y="40" font-size="24" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Making the speech: parallel chunks, fallbacks, checkpoint</text>
+<rect x="30" y="80" width="200" height="100" rx="10" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="130.0" y="99.625" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cleaned article</text>
+<text x="130.0" y="119.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">cut into chunks of 800</text>
+<text x="130.0" y="140.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">characters, each with its</text>
+<text x="130.0" y="160.375" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">position in the text</text>
+<rect x="290" y="80" width="230" height="100" rx="10" fill="#ffec99" stroke="#1e1e1e" stroke-width="2"/>
+<text x="405.0" y="99.625" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Up to 3 chunks at once</text>
+<text x="405.0" y="119.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">(one limit shared by all</text>
+<text x="405.0" y="140.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">blogs, so two blogs do not</text>
+<text x="405.0" y="160.375" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">double it)</text>
+<polyline points="230,130 290,130" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="580" y="60" width="230" height="70" rx="10" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="695.0" y="84.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Main model: Gemini</text>
+<text x="695.0" y="105.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">3 attempts per chunk</text>
+<rect x="580" y="150" width="230" height="60" rx="10" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="695.0" y="169.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Cut in halves, then quarters</text>
+<text x="695.0" y="190.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">one attempt each</text>
+<rect x="860" y="60" width="210" height="70" rx="10" fill="#ffd8a8" stroke="#1e1e1e" stroke-width="2"/>
+<text x="965.0" y="84.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Fallback 1: Voxtral</text>
+<text x="965.0" y="105.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Fallback 2: Grok</text>
+<rect x="860" y="150" width="210" height="60" rx="10" fill="#ffc9c9" stroke="#1e1e1e" stroke-width="2"/>
+<text x="965.0" y="169.875" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Last resort: sentence by</text>
+<text x="965.0" y="190.125" font-size="15" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">sentence, bad one skipped</text>
+<polyline points="520,115 580,100" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="695,130 695,150" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="810,180 860,100" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="965,130 965,150" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="260" width="490" height="90" rx="10" fill="#b2f2bb" stroke="#1e1e1e" stroke-width="2"/>
+<text x="275.0" y="286.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Each finished chunk is kept with its position.</text>
+<text x="275.0" y="305.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">The order they finish in does not matter.</text>
+<text x="275.0" y="323.90000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">If the provider rate-limits (429), the rest of the job goes one at a time.</text>
+<rect x="580" y="260" width="490" height="90" rx="10" fill="#ffc9c9" stroke="#1e1e1e" stroke-width="2"/>
+<text x="825.0" y="286.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">A chunk cannot be made at all:</text>
+<text x="825.0" y="305.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">no new chunk starts, the running ones finish,</text>
+<text x="825.0" y="323.90000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">everything finished is saved as a checkpoint.</text>
+<polyline points="375,180 275,260" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="965,210 900,260" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="410" width="490" height="90" rx="10" fill="#d0bfff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="275.0" y="436.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">All chunks done: stitch in text order,</text>
+<text x="275.0" y="455.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">check there is no hole, encode MP3,</text>
+<text x="275.0" y="473.90000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">send it. Cost is the sum of every call.</text>
+<rect x="580" y="410" width="490" height="90" rx="10" fill="#a5d8ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="825.0" y="436.1" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">You get the audio that plays from the start,</text>
+<text x="825.0" y="455.0" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">with the percentage made. Send the link again:</text>
+<text x="825.0" y="473.90000000000003" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">only the missing text is made.</text>
+<polyline points="275,350 275,410" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<polyline points="825,350 825,410" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="30" y="540" width="1040" height="60" rx="10" fill="#e9ecef" stroke="#1e1e1e" stroke-width="2"/>
+<text x="550.0" y="560.55" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">/stop on a running blog does the same as a failure: it cuts running calls short, sends what is made and keeps the checkpoint.</text>
+<text x="550.0" y="579.4499999999999" font-size="14" font-weight="normal" text-anchor="middle" dominant-baseline="central" fill="#1e1e1e">Chunks are 800 characters; the cost of a blog depends only on how many characters are spoken.</text>
+</svg>

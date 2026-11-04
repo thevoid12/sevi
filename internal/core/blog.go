@@ -70,19 +70,22 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	if err != nil {
 		return err
 	}
-	chunks := fetch.Chunk(text, cfg.GetInt("models.tts.chunk_chars"))
-	log.Infow("extracted", "url", pageURL, "chars", len([]rune(text)), "script", fetch.DetectScript(text), "chunks", len(chunks))
+	chunkChars := cfg.GetInt("models.tts.chunk_chars")
+	runes := len([]rune(text))
+	textHash := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	log.Infow("extracted", "url", pageURL, "chars", runes, "script", fetch.DetectScript(text), "chunks", len(fetch.Spans(text, chunkChars)))
 
-	// An earlier run of this link may have stopped part way: continue from there.
+	// An earlier run of this link may have stopped part way: its finished ranges
+	// are kept whatever chunk size made them, and only what is missing is made now.
 	// The person already agreed to the cost then, so they are not asked again.
-	var pcm [][]byte
-	start := 0
-	carried := 0.0 // cost of the chunks an earlier run already paid for
-	if p, err := c.Store.GetPartial(ctx, hash, ttsModel, ttsVoice); err == nil && int(p.TotalChunks) == len(chunks) && p.DoneChunks > 0 {
-		if raw, err := c.loadCheckpoint(ctx, p.AudioKey); err == nil {
-			pcm, start, confirmed, carried = [][]byte{raw}, int(p.DoneChunks), true, p.CostUsd
-			log.Infow("continuing a partly done link", "url", pageURL, "chunks_done", start, "chunks", len(chunks), "cost_so_far_usd", carried)
-			j.emit(event.Event{Kind: event.Notice, Message: fmt.Sprintf("Continuing from part %d of %d.", start+1, len(chunks))})
+	var done []model.SpeechSeg
+	carried := 0.0 // cost of the ranges an earlier run already paid for
+	if p, err := c.Store.GetPartial(ctx, hash, ttsModel, ttsVoice); err == nil && p.DoneChunks > 0 {
+		if segs, err := c.loadCheckpoint(ctx, p.AudioKey, textHash, runes); err == nil {
+			done, confirmed, carried = segs, true, p.CostUsd
+			pct := 100 * coveredRunes(done) / max(runes, 1)
+			log.Infow("continuing a partly done link", "url", pageURL, "percent_done", pct, "ranges", len(done), "cost_so_far_usd", carried)
+			j.emit(event.Event{Kind: event.Notice, Message: fmt.Sprintf("Continuing: about %d%% is already made.", pct)})
 		} else {
 			log.Warnw("saved partial audio is unreadable, starting over", "key", p.AudioKey, "err", err)
 		}
@@ -103,64 +106,27 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		}
 	}
 
-	var total float64
-	skipped := 0 // sentences no model could speak
-	for i := start; i < len(chunks); i++ {
-		ch := chunks[i]
-		j.progress(fmt.Sprintf("Generating audio %d/%d", i+1, len(chunks)), i+1, len(chunks))
-		sp, err := c.TTS.Synth(ctx, ch)
-		if err != nil {
-			reason := providerMessage(err, i+1, len(chunks))
-			saved := c.savePartial(ctx, hash, ttsModel, ttsVoice, len(chunks), i, pcm, carried+total)
-			if errors.Is(context.Cause(ctx), ErrStopped) {
-				// The user stopped it: hand over what is made, even though ctx is cancelled.
-				if i > 0 {
-					sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-					defer cancel()
-					note := fmt.Sprintf("Stopped. Here are the first %d of %d parts.", i, len(chunks))
-					if saved {
-						note += " Send the link again to continue from part " + fmt.Sprint(i+1) + "."
-					}
-					log.Infow("blog stopped by the user, sending the partial audio", "chunks_done", i, "chunks", len(chunks))
-					if c.sendPartial(sctx, j, sessionID, title, pcm, carried, note) {
-						return nil
-					}
-				}
-				return ErrStopped
-			}
-			// Give the person what was made, unless the server is stopping (then nothing can be sent).
-			if i > 0 && ctx.Err() == nil {
-				note := fmt.Sprintf("Only the first %d of %d parts could be made. %s", i, len(chunks), reason)
-				if saved {
-					note += " Send the link again to continue from part " + fmt.Sprint(i+1) + "."
-				}
-				log.Errorw("tts failed part way, sending the partial audio", "chunk", i+1, "chunks", len(chunks), "err", err)
-				if c.sendPartial(ctx, j, sessionID, title, pcm, carried, note) {
-					return nil
-				}
-			}
-			if saved {
-				reason += fmt.Sprintf(" The first %d of %d parts are saved: send the link again to continue.", i, len(chunks))
-			}
-			return event.Wrap(reason, fmt.Errorf("chunk %d of %d (model %s): %w", i+1, len(chunks), ttsModel, err))
-		}
-		cost, err := c.recordTTS(ctx, sessionID, sp, len([]rune(ch)))
-		if err != nil {
-			return event.Wrap("Something went wrong on my side.", err)
-		}
-		total += cost
-		skipped += sp.Skipped
-		pcm = append(pcm, sp.PCM)
-		log.Infow("tts chunk done", "chunk", i+1, "chunks", len(chunks), "calls", max(1, len(sp.Parts)), "cost_usd", cost, "run_cost_usd", carried+total)
+	todo := missingSpans(text, done, chunkChars)
+	fresh, spent, skipped, fail := c.speak(ctx, j, sessionID, todo)
+	all := append(append([]model.SpeechSeg(nil), done...), fresh...)
+	if fail != nil {
+		return c.speechFailed(ctx, j, sessionID, title, speechStop{
+			hash: hash, model: ttsModel, voice: ttsVoice, textHash: textHash, runes: runes,
+			all: all, carried: carried, spent: spent, fail: fail, parts: len(todo),
+		})
 	}
 
 	j.progress("Putting the audio together", 0, 0)
-	all := audio.Stitch(pcm)
-	mp3, err := audio.EncodeMP3(ctx, all)
+	full, covered := prefixSegs(all)
+	if covered != runes {
+		return event.Wrap("Something went wrong on my side.", fmt.Errorf("audio covers %d of %d characters", covered, runes))
+	}
+	whole := audio.Stitch(full)
+	mp3, err := audio.EncodeMP3(ctx, whole)
 	if err != nil {
 		return event.Wrap("I couldn't encode the audio (is ffmpeg installed?).", err)
 	}
-	seconds := int(audio.Duration(all))
+	seconds := int(audio.Duration(whole))
 	audioKey := objectstore.Key(".mp3")
 	if err := c.Objects.Put(ctx, audioKey, mp3, "audio/mpeg"); err != nil {
 		return event.Wrap("Something went wrong on my side.", err)
@@ -180,7 +146,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 		return event.Wrap("Something went wrong on my side.", err)
 	}
 	cost := carried + sc.TotalUsd // this run's calls plus what the earlier run paid
-	log.Infow("audio ready", "url", pageURL, "seconds", seconds, "bytes", len(mp3), "chunks", len(chunks), "cost_usd", cost, "unpriced_calls", sc.UnknownCalls)
+	log.Infow("audio ready", "url", pageURL, "seconds", seconds, "bytes", len(mp3), "chunks", len(todo), "cost_usd", cost, "unpriced_calls", sc.UnknownCalls)
 
 	msgText := fmt.Sprintf("Cost $%.2f", cost)
 	if sc.UnknownCalls > 0 {
@@ -286,39 +252,41 @@ func (c *Core) sendPartial(ctx context.Context, j *Job, sessionID, title string,
 	return true
 }
 
-// loadCheckpoint reads a saved partial back into PCM.
-func (c *Core) loadCheckpoint(ctx context.Context, key string) ([]byte, error) {
-	small, err := c.Objects.Get(ctx, key)
+// loadCheckpoint reads a saved checkpoint back into its finished ranges.
+func (c *Core) loadCheckpoint(ctx context.Context, key, textHash string, textLen int) ([]model.SpeechSeg, error) {
+	data, err := c.Objects.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	return audio.CheckpointToPCM(ctx, small)
+	return decodeCheckpoint(ctx, data, textHash, textLen)
 }
 
-// savePartial keeps the audio of the chunks that were done (compressed to Opus
-// in the object store, plus a database row) so sharing the link again continues from the next
-// chunk. It uses its own short deadline and ignores cancellation, so it still
-// runs when the server is shutting down. It reports whether anything was saved.
-func (c *Core) savePartial(ctx context.Context, hash, ttsModel, voice string, total, done int, pcm [][]byte, costUSD float64) bool {
-	if done == 0 || len(pcm) == 0 {
+// savePartial keeps every finished range of a half-done blog as one compressed
+// object plus a database row, so sharing the link again makes only what is
+// missing. The row's total and done counts are characters of the text. It uses
+// its own short deadline and ignores cancellation, so it still runs when the
+// server is shutting down. It reports whether anything was saved.
+func (c *Core) savePartial(ctx context.Context, hash, ttsModel, voice, textHash string, textLen int, segs []model.SpeechSeg, costUSD float64) bool {
+	if len(segs) == 0 {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cancel()
 	log := logx.With(ctx, c.Log)
-	key := objectstore.Key(".ogg")
-	small, err := audio.PCMToCheckpoint(ctx, audio.Stitch(pcm))
+	key := objectstore.Key(".ckpt")
+	data, err := encodeCheckpoint(ctx, textHash, textLen, segs)
 	if err == nil {
-		err = c.Objects.Put(ctx, key, small, "audio/ogg")
+		err = c.Objects.Put(ctx, key, data, "application/octet-stream")
 	}
+	covered := coveredRunes(segs)
 	if err == nil {
-		err = c.Store.PutPartial(ctx, hash, ttsModel, voice, total, done, key, costUSD)
+		err = c.Store.PutPartial(ctx, hash, ttsModel, voice, textLen, covered, key, costUSD)
 	}
 	if err != nil {
 		log.Errorw("could not save partial audio", "err", err)
 		return false
 	}
-	log.Infow("partial audio kept", "key", key, "chunks_done", done, "chunks", total, "cost_so_far_usd", costUSD, "bytes", len(small))
+	log.Infow("partial audio kept", "key", key, "percent_done", 100*covered/max(textLen, 1), "ranges", len(mergeRanges(segs)), "cost_so_far_usd", costUSD, "bytes", len(data))
 	return true
 }
 
