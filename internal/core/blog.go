@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sevi/internal/audio"
+	"sevi/internal/config"
 	"sevi/internal/event"
 	"sevi/internal/fetch"
 	"sevi/internal/httpx"
@@ -103,6 +104,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	}
 
 	var total float64
+	skipped := 0 // sentences no model could speak
 	for i := start; i < len(chunks); i++ {
 		ch := chunks[i]
 		j.progress(fmt.Sprintf("Generating audio %d/%d", i+1, len(chunks)), i+1, len(chunks))
@@ -147,6 +149,7 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 			return event.Wrap("Something went wrong on my side.", err)
 		}
 		total += cost
+		skipped += sp.Skipped
 		pcm = append(pcm, sp.PCM)
 		log.Infow("tts chunk done", "chunk", i+1, "chunks", len(chunks), "calls", max(1, len(sp.Parts)), "cost_usd", cost, "run_cost_usd", carried+total)
 	}
@@ -185,7 +188,11 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	}
 	j.emit(event.Event{Kind: event.Cost, Message: msgText, CostUSD: &cost})
 	j.emit(event.Event{Kind: event.Done, Message: "Audio is ready."})
-	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title, Mime: "audio/mpeg", CostUSD: &cost}})
+	note := ""
+	if skipped > 0 {
+		note = fmt.Sprintf("%d sentence(s) could not be spoken by any voice model and were left out.", skipped)
+	}
+	j.setStatus(Done, []Part{{Type: "audio", MessageID: msg.ID, Seconds: seconds, Title: title, Mime: "audio/mpeg", CostUSD: &cost, Note: note}})
 	return nil
 }
 
@@ -202,15 +209,19 @@ func (c *Core) recordTTS(ctx context.Context, sessionID string, sp provider.Spee
 	}
 	var total float64
 	for _, part := range parts {
-		in, out := pricing.TTSTokens(part.Chars, audio.Duration(part.PCM), cfg.GetFloat64("models.tts.audio_tokens_per_sec"))
+		seconds, tps := audio.Duration(part.PCM), cfg.GetFloat64("models.tts.audio_tokens_per_sec")
 		e := model.LedgerEntry{
 			SessionID: sessionID, Role: "tts", Provider: ttsProvider, Model: part.Model,
-			GenerationID: part.GenerationID, Chars: part.Chars, InputUnits: in, OutputUnits: out,
+			GenerationID: part.GenerationID, Chars: part.Chars,
 		}
 		if p, err := c.Prices.Get(ctx, ttsProvider, part.Model); err != nil {
+			e.InputUnits, e.OutputUnits = pricing.TTSTokens(part.Chars, seconds, tps)
 			logx.With(ctx, c.Log).Errorw("no price for the tts model, cost left unknown", "model", part.Model, "err", err)
 		} else {
-			cost := pricing.TTSCost(p, in, out)
+			// What the price is per (token, character or second) decides how the call is counted.
+			unit := pricing.UnitFor(config.PricedPer(cfg, part.Model), p)
+			e.InputUnits, e.OutputUnits = pricing.TTSUnits(unit, part.Chars, seconds, tps)
+			cost := pricing.TTSCost(p, e.InputUnits, e.OutputUnits)
 			e.CostUSD = &cost
 			total += cost
 		}

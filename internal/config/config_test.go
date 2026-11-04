@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/viper"
+
 	"sevi/internal/secrets"
 )
 
@@ -30,6 +32,21 @@ func TestSampleHoldsEverySecretTheCodeReads(t *testing.T) {
 	for _, n := range names {
 		if !secrets.Has(s, n) {
 			t.Errorf("secret_sample.json is missing %s", n)
+		}
+	}
+}
+
+func TestPricedPer(t *testing.T) {
+	c := viper.New()
+	c.Set("models.tts.model", "main/m")
+	c.Set("models.tts.priced_per", "token")
+	c.Set("models.tts.fallbacks", []map[string]any{
+		{"model": "a/char", "priced_per": "char"},
+		{"model": "b/unset"},
+	})
+	for model, want := range map[string]string{"main/m": "token", "a/char": "char", "b/unset": "", "other": "", "": ""} {
+		if got := PricedPer(c, model); got != want {
+			t.Errorf("PricedPer(%q) = %q, want %q", model, got, want)
 		}
 	}
 }

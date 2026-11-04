@@ -27,6 +27,8 @@ type Speech struct {
 	PCM          []byte
 	GenerationID string
 	Parts        []SpeechPart
+	Skipped      int   // sentences nothing could speak, left out as a last resort
+	cause        error // why the last skipped sentence could not be spoken
 }
 
 // SpeechPart is one provider call inside a Speech.

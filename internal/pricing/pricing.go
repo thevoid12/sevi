@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,6 +193,34 @@ func LLMCost(p provider.Price, u provider.ChatUsage) float64 {
 		float64(u.AudioTokens)*audioRate + float64(u.CompletionTokens)*p.Completion
 }
 
+// Unit is what a TTS model's price is "per". OpenRouter publishes two numbers
+// (prompt and completion) but not their unit, so it comes from the config
+// (priced_per) or, when that is not set, from the shape of the price.
+type Unit string
+
+const (
+	UnitToken  Unit = "token"  // prompt per input token, completion per output (audio) token: Gemini
+	UnitChar   Unit = "char"   // prompt per character of text, completion 0: Mistral, xAI, Qwen
+	UnitSecond Unit = "second" // completion per second of audio, prompt 0: ByteDance Seed
+)
+
+// UnitFor is the configured unit if it is a known one, otherwise it is guessed
+// from the price: a model with only a prompt price is per character, one with
+// only a completion price is per second, anything else is per token.
+func UnitFor(configured string, p provider.Price) Unit {
+	switch u := Unit(strings.ToLower(strings.TrimSpace(configured))); u {
+	case UnitToken, UnitChar, UnitSecond:
+		return u
+	}
+	switch {
+	case p.Completion == 0 && p.Prompt > 0:
+		return UnitChar
+	case p.Prompt == 0 && p.Completion > 0:
+		return UnitSecond
+	}
+	return UnitToken
+}
+
 // TTSTokens estimates the billed tokens of one TTS call: input tokens from the
 // text length, output tokens from the seconds of speech produced.
 func TTSTokens(chars int, seconds, tokensPerSec float64) (in, out int) {
@@ -201,14 +230,27 @@ func TTSTokens(chars int, seconds, tokensPerSec float64) (in, out int) {
 	return int(math.Ceil(float64(chars) / charsPerToken)), int(math.Round(seconds * tokensPerSec))
 }
 
+// TTSUnits is the billed quantity of one call in the model's unit, as (input,
+// output) to multiply by the prompt and completion price: characters in for a
+// per-character model, seconds out for a per-second one.
+func TTSUnits(u Unit, chars int, seconds, tokensPerSec float64) (in, out int) {
+	switch u {
+	case UnitChar:
+		return chars, 0
+	case UnitSecond:
+		return 0, int(math.Ceil(seconds))
+	}
+	return TTSTokens(chars, seconds, tokensPerSec)
+}
+
 func TTSCost(p provider.Price, in, out int) float64 {
 	return float64(in)*p.Prompt + float64(out)*p.Completion
 }
 
 // EstimateTTS prices speaking `chars` characters before doing it, using the
 // configured speaking rate.
-func EstimateTTS(p provider.Price, chars, charsPerMinute int, tokensPerSec float64) float64 {
+func EstimateTTS(p provider.Price, u Unit, chars, charsPerMinute int, tokensPerSec float64) float64 {
 	seconds := float64(chars) / float64(charsPerMinute) * 60
-	in, out := TTSTokens(chars, seconds, tokensPerSec)
+	in, out := TTSUnits(u, chars, seconds, tokensPerSec)
 	return TTSCost(p, in, out)
 }

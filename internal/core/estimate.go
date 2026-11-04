@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"sevi/internal/config"
 	"sevi/internal/pricing"
 )
 
@@ -29,7 +30,9 @@ func (c *Core) estimate(ctx context.Context, chars int) Estimate {
 	}
 	e := Estimate{Chars: chars, Minutes: float64(chars) / float64(cpm)}
 	if p, err := c.Prices.Get(ctx, cfg.GetString("models.tts.provider"), cfg.GetString("models.tts.model")); err == nil {
-		e.USD, e.Source = pricing.EstimateTTS(p, chars, cpm, cfg.GetFloat64("models.tts.audio_tokens_per_sec")), "price"
+		m := cfg.GetString("models.tts.model")
+		unit := pricing.UnitFor(config.PricedPer(cfg, m), p)
+		e.USD, e.Source = pricing.EstimateTTS(p, unit, chars, cpm, cfg.GetFloat64("models.tts.audio_tokens_per_sec")), "price"
 	} else {
 		c.Log.Warnw("no model price for the estimate, using cost.est_usd_per_1k_chars", "err", err)
 		e.USD, e.Source = cfg.GetFloat64("cost.est_usd_per_1k_chars")/1000*float64(chars), "config"

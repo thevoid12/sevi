@@ -21,7 +21,7 @@
 ## 4. When speech fails
 ![When speech fails](./design/images/4-when-speech-fails.svg)
 
-A chunk is tried on the main voice model with the configured retries (`app.retries`), then cut into halves and quarters that are tried once each (no retries), and a quarter that still fails goes to the fallback models. After two chunks in a row fail on the main model it is skipped for 10 minutes. You can also reply `/stop` to a blog that is still being made: it stops at once and sends the audio made so far, and sending the link again continues from there.
+A chunk is tried on the main voice model with the configured retries (`models.tts.retries`, 2 extra attempts), then cut into halves and quarters that are tried once each (no retries), and a quarter that still fails goes to the fallback models. After two chunks in a row fail on the main model it is skipped for 10 minutes. You can also reply `/stop` to a blog that is still being made: it stops at once and sends the audio made so far, and sending the link again continues from there.
 
 ## 5. Follow-up questions, by voice or text
 ![Follow-up questions](./design/images/5-follow-up-questions.svg)

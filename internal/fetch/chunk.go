@@ -30,6 +30,20 @@ func Chunk(s string, n int) []string {
 	return out
 }
 
+// Sentences cuts s into its sentences (trimmed, none empty), for speaking a
+// stubborn piece one sentence at a time.
+func Sentences(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, "\n") {
+		for _, sent := range splitSentences(p, 1<<30) {
+			if t := strings.TrimSpace(sent); t != "" {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
 func splitSentences(p string, n int) []string {
 	var out []string
 	for _, s := range reSentence.FindAllString(p, -1) {

@@ -131,11 +131,13 @@ func TestResilientGivesUpWhenEverythingFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("want the provider error, got %v", err)
 	}
-	// It stops at the first piece that cannot be done: the whole chunk, its first
-	// half, that half's first quarter, then the one fallback try.
-	if srv.count("main") != 3 || srv.count("backup") != 1 {
-		t.Errorf("main=%d backup=%d, want 3 and 1", srv.count("main"), srv.count("backup"))
+	// It stops once two pieces in a row could not be spoken at all (an outage, not one bad
+	// sentence): the whole chunk, its first half, then two quarters, each tried on the main
+	// model and then the fallback once.
+	if srv.count("main") != 4 || srv.count("backup") != 2 {
+		t.Errorf("main=%d backup=%d, want 4 and 2", srv.count("main"), srv.count("backup"))
 	}
+
 }
 
 func TestResilientDoesNotSplitARateLimit(t *testing.T) {
@@ -195,5 +197,27 @@ func TestResilientSkipsAFailingPrimaryForAWhile(t *testing.T) {
 	}
 	if srv.count("main") == tried {
 		t.Error("the primary should be tried again after the cooldown")
+	}
+}
+
+func TestResilientSpeaksSentenceBySentenceAsALastResort(t *testing.T) {
+	// One sentence is poison for every model; the rest of the piece is fine.
+	srv := newTTSServer(t, func(_, in string) bool { return strings.Contains(in, "second sentence") })
+	sp, err := resilient(srv.URL, 0, "backup").Synth(t.Context(), text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp.Skipped != 1 {
+		t.Errorf("skipped = %d, want 1", sp.Skipped)
+	}
+	if len(sp.PCM) == 0 || len(sp.PCM) != 100*len(sp.Parts) {
+		t.Errorf("pcm %d for %d parts", len(sp.PCM), len(sp.Parts))
+	}
+}
+
+func TestResilientFailsWhenNoSentenceCanBeSpoken(t *testing.T) {
+	srv := newTTSServer(t, func(string, string) bool { return true })
+	if _, err := resilient(srv.URL, 0, "backup").Synth(t.Context(), text); err == nil {
+		t.Fatal("want an error when nothing can be spoken")
 	}
 }

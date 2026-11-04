@@ -18,6 +18,10 @@ import (
 // into quarters. Quarters are not cut further; they go to the fallback models.
 const maxSplitDepth = 2
 
+// A chunk with more than maxSkipped sentences nothing could speak fails instead
+// of being delivered with holes in it.
+const maxSkipped = 3
+
 // After primaryStreak whole chunks in a row failed on the primary, it is
 // skipped for primaryCooldown and chunks go to the fallbacks first, so a model
 // that is down does not cost a few minutes per chunk.
@@ -102,6 +106,11 @@ func (r *Resilient) Synth(ctx context.Context, text string) (Speech, error) {
 	}
 	logx.With(ctx, r.Log).Warnw("tts chunk failed, splitting it in two", "model", r.Primary.Model, "chars", len([]rune(text)), "err", err)
 	sp, err = r.join(ctx, 1, a, b)
+	if err == nil && (len(sp.PCM) == 0 || sp.Skipped > maxSkipped) {
+		// Too much was left out to call the chunk done: better to stop and let the person retry.
+		err = fmt.Errorf("%d sentence(s) of this chunk could not be spoken by any model", sp.Skipped)
+		sp = Speech{}
+	}
 	r.recovered(ctx, sp, err)
 	return sp, err
 }
@@ -114,8 +123,18 @@ func (r *Resilient) join(ctx context.Context, depth int, pieces ...string) (Spee
 		if err != nil {
 			return Speech{}, err
 		}
-		out.PCM = append(out.PCM, sp.PCM...)
-		out.Parts = append(out.Parts, sp.parts(r.Primary.Model, piece)...)
+		if len(sp.PCM) > 0 { // a piece that was only skipped made no call to record
+			out.PCM = append(out.PCM, sp.PCM...)
+			out.Parts = append(out.Parts, sp.parts(r.Primary.Model, piece)...)
+		}
+		out.Skipped += sp.Skipped
+		if sp.cause != nil {
+			out.cause = sp.cause
+		}
+		// Two pieces in a row with nothing spoken at all look like an outage, not a bad sentence: stop spending calls.
+		if len(out.PCM) == 0 && out.Skipped >= 2 {
+			return Speech{}, out.cause
+		}
 	}
 	return out, nil
 }
@@ -135,7 +154,47 @@ func (r *Resilient) piece(ctx context.Context, text string, depth int) (Speech, 
 			return r.join(ctx, depth+1, a, b)
 		}
 	}
-	return r.fallback(ctx, text, err)
+	sp, ferr := r.fallback(ctx, text, err)
+	if ferr == nil || ctx.Err() != nil {
+		return sp, ferr
+	}
+	return r.bySentence(ctx, text, ferr)
+}
+
+// bySentence is the last resort for a piece no model could speak: each
+// sentence is tried once on the primary and then on the fallbacks, and a
+// sentence nothing can speak is left out (counted in Skipped) rather than
+// losing the whole piece. It fails only when no sentence could be spoken.
+func (r *Resilient) bySentence(ctx context.Context, text string, cause error) (Speech, error) {
+	sentences := fetch.Sentences(text)
+	if len(sentences) < 2 { // a single sentence nothing can speak
+		logx.With(ctx, r.Log).Errorw("tts sentence skipped, no model could speak it", "chars", len([]rune(text)), "err", cause)
+		return Speech{Skipped: 1, cause: cause}, nil
+	}
+	logx.With(ctx, r.Log).Warnw("tts piece failed on every model, speaking it sentence by sentence", "sentences", len(sentences), "chars", len([]rune(text)))
+	var out Speech
+	for _, s := range sentences {
+		once := *r.Primary
+		once.Retries = 0
+		sp, err := once.Synth(ctx, s)
+		if err != nil && splittable(ctx, err) {
+			sp, err = r.fallback(ctx, s, err)
+		}
+		if ctx.Err() != nil {
+			return Speech{}, ctx.Err()
+		}
+		if err != nil {
+			out.Skipped++
+			logx.With(ctx, r.Log).Errorw("tts sentence skipped, no model could speak it", "chars", len([]rune(s)), "err", err)
+			continue
+		}
+		out.PCM = append(out.PCM, sp.PCM...)
+		out.Parts = append(out.Parts, sp.parts(r.Primary.Model, s)...)
+	}
+	if len(out.PCM) == 0 {
+		return Speech{}, cause
+	}
+	return out, nil
 }
 
 // fallback tries each fallback model once. It returns the primary error when

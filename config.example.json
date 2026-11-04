@@ -4,7 +4,7 @@
     "listen": "127.0.0.1:8787",
     "data_dir": "data",
     "output_dir": "output",
-    "retries": 4
+    "retries": 2
   },
   "api": {
     "adapters": [
@@ -31,13 +31,21 @@
       "provider": "openrouter",
       "model": "google/gemini-3.8-flash-lite-tts",
       "voice": "Kore",
-      "chunk_chars": 3000,
+      "priced_per": "token",
+      "chunk_chars": 800,
       "chars_per_minute": 950,
       "audio_tokens_per_sec": 25,
+      "retries": 2,
       "fallbacks": [
         {
-          "model": "google/gemini-3.8-flash-tts",
-          "voice": "Kore"
+          "model": "mistralai/voxtral-mini-tts-3-0",
+          "voice": "en_paul_neutral",
+          "priced_per": "char"
+        },
+        {
+          "model": "x-ai/grok-voice-tts-1.0",
+          "voice": "eve",
+          "priced_per": "char"
         }
       ]
     }

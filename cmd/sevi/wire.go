@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sevi/internal/config"
 	"time"
 
 	"sevi/internal/core"
@@ -92,7 +93,7 @@ func (a *app) newTTS(baseURL, key string) provider.TTS {
 	cfg, log := a.Cfg, a.Log
 	primary := &provider.OpenRouterTTS{
 		BaseURL: baseURL, Key: key, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
-		Retries: cfg.GetInt("app.retries"), Log: log,
+		Retries: ttsRetries(cfg), Log: log,
 	}
 	r := &provider.Resilient{Primary: primary, Log: log}
 	var fallbacks []struct{ Model, Voice string }
@@ -107,4 +108,15 @@ func (a *app) newTTS(baseURL, key string) provider.TTS {
 		r.Fallbacks = append(r.Fallbacks, &provider.OpenRouterTTS{BaseURL: baseURL, Key: key, Model: fb.Model, Voice: fb.Voice, Log: log})
 	}
 	return r
+}
+
+// ttsRetries is how many extra attempts the main speech model gets for a whole
+// chunk: models.tts.retries, or app.retries when that is not set. It is its own
+// setting because the same failure repeats, so speech wants fewer retries than
+// the LLM calls that share app.retries.
+func ttsRetries(cfg *config.Config) int {
+	if cfg.IsSet("models.tts.retries") {
+		return cfg.GetInt("models.tts.retries")
+	}
+	return cfg.GetInt("app.retries")
 }
