@@ -41,6 +41,9 @@ func setDefaults(c *Config) {
 	c.SetDefault("models.tts.chars_per_minute", 950)
 	// Speech calls in flight at once, across all jobs. More is faster but risks the provider's rate limit.
 	c.SetDefault("models.tts.concurrency", 3)
+	// A running blog is checkpointed this often (seconds; 0 turns it off), so a platform
+	// shutdown, which gives a process only a few seconds, loses at most this much work.
+	c.SetDefault("models.tts.checkpoint_seconds", 45)
 	c.SetDefault("models.tts.audio_tokens_per_sec", 25)
 	c.SetDefault("cost.price_ttl_days", 7)
 	// Data older than this is deleted: R2 audio (by the deploy), database rows (by the app).

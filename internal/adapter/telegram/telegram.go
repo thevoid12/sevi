@@ -470,11 +470,13 @@ func (b *Bot) follow(ctx context.Context, chatID, statusID, replyTo int64, pageU
 
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			log.Warnw("stopped following job", "status", v.Status)
+			b.serverStopped(ctx, chatID, statusID)
 			return
 		}
 		next, err := b.core.job(ctx, v.ID, after, 25)
 		if err != nil {
 			if ctx.Err() != nil {
+				b.serverStopped(ctx, chatID, statusID)
 				return
 			}
 			log.Errorw("could not poll job", "err", err)
@@ -487,6 +489,20 @@ func (b *Bot) follow(ctx context.Context, chatID, statusID, replyTo int64, pageU
 		}
 		v = next
 	}
+}
+
+// serverStopped tells the person the server is going away while their job ran
+// (a restart or the platform stopping the instance), instead of leaving the
+// status message frozen. The job keeps what it made, so sending the link again
+// continues. It uses its own short deadline because ctx is already cancelled,
+// and the process has only a few seconds left.
+func (b *Bot) serverStopped(ctx context.Context, chatID, statusID int64) {
+	if ctx.Err() == nil {
+		return
+	}
+	ectx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+	defer cancel()
+	b.edit(ectx, chatID, statusID, "The server restarted before this finished. Whatever was made is saved: send the link again to continue.", nil)
 }
 
 // deliver sends the result of a finished job and registers what it sent.

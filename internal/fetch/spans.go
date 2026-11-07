@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"sevi/internal/model"
 )
@@ -25,9 +26,12 @@ func SpansIn(text string, from, to, n int) []model.Span {
 	off := from
 	for _, p := range strings.Split(string(r[from:to]), "\n") {
 		pr := []rune(p)
+		bytePos, runePos := 0, 0 // advanced as the matches go by, so the paragraph is read once
 		for _, s := range reSentence.FindAllStringIndex(p, -1) {
-			a := len([]rune(p[:s[0]]))
-			b := a + len([]rune(p[s[0]:s[1]]))
+			runePos += utf8.RuneCountInString(p[bytePos:s[0]])
+			a := runePos
+			b := a + utf8.RuneCountInString(p[s[0]:s[1]])
+			bytePos, runePos = s[1], b
 			for b-a > n { // a sentence longer than a chunk: cut at the last space that fits, else hard
 				cut := n
 				for i := n - 1; i > 0; i-- {

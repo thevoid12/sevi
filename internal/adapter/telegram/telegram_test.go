@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -150,5 +151,52 @@ func TestStopCommandFindsTheJob(t *testing.T) {
 	b.stop(ctx, in{chatID: 5, msgID: 26, replyTo: 11, text: "/stop"})
 	if len(stopped) != 3 {
 		t.Errorf("a finished job is forgotten: %v", stopped)
+	}
+}
+
+// When the server stops while a job runs, the person is told, not left looking at a frozen status.
+func TestFollowTellsThePersonWhenTheServerStops(t *testing.T) {
+	var mu sync.Mutex
+	var edits []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			var body struct {
+				Text string `json:"text"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			edits = append(edits, body.Text)
+			mu.Unlock()
+			w.Write([]byte(`{"ok":true,"result":true}`))
+		default: // the job poll: the job is still running
+			w.Write([]byte(`{"job_id":"j","session_id":"s","status":"running","events":[]}`))
+		}
+	}))
+	defer srv.Close()
+	b, err := New(Options{
+		Token: "tok", WebhookSecret: "s", AllowedIDs: []int64{1}, TelegramURL: srv.URL,
+		CoreURL: srv.URL, CoreToken: func() (string, error) { return "t", nil },
+	}, zap.NewNop().Sugar())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		b.follow(ctx, 5, 11, 10, "https://blog.example/x", jobView{ID: "j", SessionID: "s", Status: "running"})
+		close(done)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel() // the server is shutting down
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("follow did not return")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(edits) == 0 || !strings.Contains(edits[len(edits)-1], "restarted") || !strings.Contains(edits[len(edits)-1], "send the link again") {
+		t.Errorf("status edits: %q", edits)
 	}
 }

@@ -23,7 +23,7 @@
 
 Chunks of the article (800 characters each) are spoken three at a time (`models.tts.concurrency`, shared by every job, so two blogs at once do not double it); the results are stitched together in text order. Each chunk is tried on the main voice model with `models.tts.retries` extra attempts, then cut into halves and quarters tried once each, then sent to the fallback models, and as a last resort spoken sentence by sentence. After two chunks in a row fail on the main model it is skipped for 10 minutes.
 
-When a chunk cannot be made, nothing new is started, the chunks already running finish, and everything finished is saved as one compressed checkpoint. You get the audio that plays from the start of the article. Sending the link again makes only what is missing. Reply `/stop` to a blog that is still being made to cut it short: it sends the audio made so far and keeps the checkpoint.
+When a chunk cannot be made, nothing new is started, the chunks already running finish, and everything finished is saved as one compressed checkpoint. You get the audio that plays from the start of the article. Sending the link again makes only what is missing. A running blog is also checkpointed every 45 seconds (`models.tts.checkpoint_seconds`), because the platform can stop an instance at any time and gives it only a few seconds: at most that much work is lost, and the status message then says the server restarted and to send the link again. Reply `/stop` to a blog that is still being made to cut it short: it sends the audio made so far and keeps the checkpoint.
 
 ### How a half-done blog is resumed
 

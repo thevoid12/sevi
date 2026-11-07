@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestAudioMemoryIsReleasedAfterABlog(t *testing.T) {
 	}
 	run("https://blog.example/warmup") // first run allocates one-off things (caches, pools)
 	base := heapMB()
-	var peak float64
+	var peakBits atomic.Uint64
 	stop := make(chan struct{})
 	go func() { // sample the heap while the job runs
 		var m runtime.MemStats
@@ -82,14 +83,18 @@ func TestAudioMemoryIsReleasedAfterABlog(t *testing.T) {
 				return
 			case <-time.After(20 * time.Millisecond):
 				runtime.ReadMemStats(&m)
-				if mb := float64(m.HeapAlloc) / 1e6; mb > peak {
-					peak = mb
+				for {
+					old := peakBits.Load()
+					if mb := m.HeapAlloc; mb <= old || peakBits.CompareAndSwap(old, mb) {
+						break
+					}
 				}
 			}
 		}
 	}()
 	run("https://blog.example/measured")
 	close(stop)
+	peak := float64(peakBits.Load()) / 1e6
 	after := heapMB()
 	t.Logf("heap: before %.0f MB, peak during the job %.0f MB, after %.0f MB (audio of the job: ~40 MB)", base, peak, after)
 	if after > base+15 {

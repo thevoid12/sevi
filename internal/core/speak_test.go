@@ -98,7 +98,7 @@ func TestSpeakRunsChunksInParallelUpToTheLimit(t *testing.T) {
 	tts := &gateTTS{delay: 40 * time.Millisecond}
 	c := speakCore(t, tts, 3)
 	j, sid := newTestJob(c, t)
-	segs, cost, _, fail := c.speak(reqid.With(context.Background(), "r"), j, sid, spansOf(9))
+	segs, cost, _, fail := c.speak(reqid.With(context.Background(), "r"), j, sid, spansOf(9), nil)
 	if fail != nil || len(segs) != 9 || cost <= 0 {
 		t.Fatalf("fail=%v segs=%d cost=%v", fail, len(segs), cost)
 	}
@@ -128,7 +128,7 @@ func TestSpeakLimitIsSharedByJobs(t *testing.T) {
 			defer wg.Done()
 			sess, _ := c.Store.CreateSession(context.Background(), "blog", fmt.Sprintf("https://x.example/%d", i))
 			j := newJob(fmt.Sprint("job", i), sess.ID)
-			segs, _, _, fail := c.speak(context.Background(), j, sess.ID, spansOf(6))
+			segs, _, _, fail := c.speak(context.Background(), j, sess.ID, spansOf(6), nil)
 			if fail != nil || len(segs) != 6 {
 				t.Errorf("job %d: fail=%v segs=%d", i, fail, len(segs))
 			}
@@ -144,7 +144,7 @@ func TestSpeakKeepsWhatFinishedWhenAChunkFails(t *testing.T) {
 	tts := &gateTTS{delay: 20 * time.Millisecond}
 	c := speakCore(t, tts, 2)
 	j, sid := newTestJob(c, t)
-	segs, _, _, fail := c.speak(context.Background(), j, sid, spansOf(12, 3))
+	segs, _, _, fail := c.speak(context.Background(), j, sid, spansOf(12, 3), nil)
 	if fail == nil || fail.part != 4 {
 		t.Fatalf("want a failure at part 4, got %+v", fail)
 	}
@@ -175,7 +175,7 @@ func TestSpeakStopCutsRunningCallsAndKeepsFinished(t *testing.T) {
 		cancel(ErrStopped)
 	}()
 	start := time.Now()
-	segs, _, _, fail := c.speak(ctx, j, sid, spansOf(30))
+	segs, _, _, fail := c.speak(ctx, j, sid, spansOf(30), nil)
 	if fail == nil || !errors.Is(fail.err, context.Canceled) {
 		t.Fatalf("want a cancelled failure, got %+v", fail)
 	}
@@ -204,7 +204,7 @@ func TestSpeakGoesOneAtATimeAfterARateLimit(t *testing.T) {
 	})
 	c := speakCore(t, tts, 3)
 	j, sid := newTestJob(c, t)
-	segs, _, _, fail := c.speak(context.Background(), j, sid, spansOf(10))
+	segs, _, _, fail := c.speak(context.Background(), j, sid, spansOf(10), nil)
 	if fail == nil {
 		t.Fatalf("the rate-limited chunk should have failed: %d chunks made", len(segs))
 	}
@@ -217,4 +217,43 @@ type ttsFunc func(context.Context, string) (provider.Speech, error)
 
 func (f ttsFunc) Synth(ctx context.Context, text string) (provider.Speech, error) {
 	return f(ctx, text)
+}
+
+func TestSpeakCheckpointsWhileRunning(t *testing.T) {
+	tts := &gateTTS{delay: 30 * time.Millisecond}
+	c := speakCore(t, tts, 1) // one at a time: chunks finish steadily
+	c.Cfg.Set("models.tts.checkpoint_seconds", 1)
+	j, sid := newTestJob(c, t)
+	var mu sync.Mutex
+	var sizes []int
+	var running, overlap atomic.Int32
+	segs, _, _, fail := c.speak(context.Background(), j, sid, spansOf(60), func(s []model.SpeechSeg, _ float64) {
+		if running.Add(1) > 1 {
+			overlap.Add(1)
+		}
+		defer running.Add(-1)
+		mu.Lock()
+		sizes = append(sizes, len(s))
+		mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+	})
+	if fail != nil || len(segs) != 60 {
+		t.Fatalf("fail=%v segs=%d", fail, len(segs))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sizes) < 1 {
+		t.Fatal("a job running for longer than the interval should have been checkpointed")
+	}
+	for i := 1; i < len(sizes); i++ {
+		if sizes[i] <= sizes[i-1] {
+			t.Errorf("each checkpoint should hold more than the last: %v", sizes)
+		}
+	}
+	if overlap.Load() != 0 {
+		t.Error("two checkpoints ran at the same time")
+	}
+	if sizes[len(sizes)-1] >= 60 {
+		t.Errorf("the last chunk is saved by the caller, not by a periodic save: %v", sizes)
+	}
 }

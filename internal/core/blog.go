@@ -107,7 +107,10 @@ func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, c
 	}
 
 	todo := missingSpans(text, done, chunkChars)
-	fresh, spent, skipped, fail := c.speak(ctx, j, sessionID, todo)
+	keep := func(fresh []model.SpeechSeg, spent float64) {
+		c.savePartial(ctx, hash, ttsModel, ttsVoice, textHash, runes, append(append([]model.SpeechSeg(nil), done...), fresh...), carried+spent)
+	}
+	fresh, spent, skipped, fail := c.speak(ctx, j, sessionID, todo, keep)
 	all := append(append([]model.SpeechSeg(nil), done...), fresh...)
 	if fail != nil {
 		return c.speechFailed(ctx, j, sessionID, title, speechStop{

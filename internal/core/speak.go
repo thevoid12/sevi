@@ -41,7 +41,7 @@ type speakFailure struct {
 // allowed to finish (their audio is paid for), and everything finished is
 // returned along with the failure. A stop (ctx cancelled) cuts running calls short.
 // If the provider rate-limits (429), the rest of the job runs one chunk at a time.
-func (c *Core) speak(ctx context.Context, j *Job, sessionID string, todo []model.Span) (segs []model.SpeechSeg, cost float64, skipped int, fail *speakFailure) {
+func (c *Core) speak(ctx context.Context, j *Job, sessionID string, todo []model.Span, checkpoint func(segs []model.SpeechSeg, cost float64)) (segs []model.SpeechSeg, cost float64, skipped int, fail *speakFailure) {
 	if len(todo) == 0 {
 		return nil, 0, 0, nil
 	}
@@ -52,6 +52,13 @@ func (c *Core) speak(ctx context.Context, j *Job, sessionID string, todo []model
 		completed   int
 		rateLimited atomic.Bool
 		oneAtATime  = make(chan struct{}, 1) // used by every chunk once the provider rate-limits
+
+		// A running job is checkpointed every so often, so a platform shutdown (which
+		// leaves only a few seconds) loses at most that much work.
+		every    = time.Duration(c.Cfg.GetInt("models.tts.checkpoint_seconds")) * time.Second
+		lastSave = time.Now()
+		saving   bool
+		savers   sync.WaitGroup
 	)
 	j.progress(fmt.Sprintf("Generating audio 0/%d", len(todo)), 0, len(todo))
 	failed := func() bool { mu.Lock(); defer mu.Unlock(); return fail != nil }
@@ -123,10 +130,23 @@ dispatch:
 			segs = append(segs, model.SpeechSeg{Start: sp.Start, End: sp.End, PCM: speech.PCM})
 			completed++
 			j.progress(fmt.Sprintf("Generating audio %d/%d", completed, len(todo)), completed, len(todo))
+			if checkpoint != nil && every > 0 && !saving && time.Since(lastSave) >= every && completed < len(todo) {
+				saving, lastSave = true, time.Now()
+				snapshot, spent := append([]model.SpeechSeg(nil), segs...), cost
+				savers.Add(1)
+				go func() {
+					defer savers.Done()
+					checkpoint(snapshot, spent)
+					mu.Lock()
+					saving = false
+					mu.Unlock()
+				}()
+			}
 			log.Infow("tts chunk done", "chunk", i+1, "chunks", len(todo), "calls", max(1, len(speech.Parts)), "cost_usd", callCost)
 		}(i, sp, serial)
 	}
 	wg.Wait()
+	savers.Wait()                             // a periodic save must not land after the final one
 	if fail == nil && completed < len(todo) { // stopped before every chunk was made
 		fail = &speakFailure{err: context.Cause(ctx), part: completed + 1}
 	}
