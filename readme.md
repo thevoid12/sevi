@@ -1,4 +1,5 @@
 # sevi
+- read the detailed writeup explaining the design choices and how I built this here (handwritten no ai slop): https://www.thisisvoid.in/blogs/2026_11/sevi
 - sevi is my extendable audio blog setup that I built to help me listen to blogs and interact with blogs online on the fly.
 - I have lot of blogs to read but too little fixed time. so a flexible straightforward audio blog version of blog which can be cross questioned, debated and explore the tangents around the blog completely in audio format is what I wanted right now. so I built one.
 - currently I extended sevi core with telegram interface coz it is easy for me to interact with telegram. it can be anything  whatsapp,discord,custom webpage. (custom webpage will be built for v1 for more fine grain features and usability)
