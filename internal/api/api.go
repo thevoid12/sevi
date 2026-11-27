@@ -20,6 +20,7 @@ import (
 	"sevi/internal/model"
 	"sevi/internal/reqid"
 	"sevi/internal/store"
+	"sevi/internal/voice"
 )
 
 // audioURLTTL is how long a presigned audio link stays valid. Links are made
@@ -48,6 +49,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/threads", a.postThread)
 	mux.HandleFunc("POST /v1/seen", a.postSeen)
 	mux.HandleFunc("GET /v1/audio/{message_id}", a.getAudio)
+	mux.HandleFunc("GET /v1/voices", a.getVoices)
+	mux.HandleFunc("PUT /v1/voice", a.putVoice)
 	return a.middleware(a.authenticate(mux))
 }
 
@@ -331,4 +334,44 @@ func (a *API) writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		a.Log.Warnw("write response failed", "err", err)
 	}
+}
+
+// GET /v1/voices -> everything a voice picker needs: the genders, the voices
+// (each with its gender and tone), the accents, and the choice in use. Any front
+// end (Telegram buttons, a web page's drop-downs) is built from this alone.
+func (a *API) getVoices(w http.ResponseWriter, r *http.Request) {
+	a.writeJSON(w, http.StatusOK, voicesBody{
+		Genders: voice.Genders, Voices: voice.Voices, Accents: voice.Accents,
+		Current: a.core.VoiceSetting(r.Context()),
+	})
+}
+
+type voicesBody struct {
+	Genders []string       `json:"genders"`
+	Voices  []voice.Voice  `json:"voices"`
+	Accents []voice.Accent `json:"accents"`
+	Current voice.Setting  `json:"current"`
+}
+
+// PUT /v1/voice {"voice": "Charon", "accent": "indian"} saves the choice for
+// every job started after it. An empty accent is the default one.
+func (a *API) putVoice(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Voice  string `json:"voice"`
+		Accent string `json:"accent"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
+		a.fail(w, r, http.StatusBadRequest, event.Wrap("The request body is not valid JSON.", err))
+		return
+	}
+	s, err := a.core.SetVoice(r.Context(), in.Voice, in.Accent)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, voice.ErrUnknown) {
+			status = http.StatusBadRequest
+		}
+		a.fail(w, r, status, err)
+		return
+	}
+	a.writeJSON(w, http.StatusOK, s)
 }

@@ -126,3 +126,20 @@ func TestPruneDeletesOldDataOnly(t *testing.T) {
 		t.Errorf("retention 0 must not delete: %d sessions", got)
 	}
 }
+
+func TestSettingRoundTrip(t *testing.T) {
+	st := storetest.Open(t, zap.NewNop().Sugar())
+	ctx := context.Background()
+	if _, err := st.GetSetting(ctx, "voice"); err == nil {
+		t.Fatal("an unset setting must be not found")
+	}
+	if err := st.PutSetting(ctx, "voice", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutSetting(ctx, "voice", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := st.GetSetting(ctx, "voice"); err != nil || v != "b" {
+		t.Errorf("got %q, %v; want the latest value", v, err)
+	}
+}

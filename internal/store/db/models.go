@@ -138,6 +138,15 @@ type Session struct {
 	SummaryThrough sql.NullString
 }
 
+type Setting struct {
+	Key       string
+	Value     string
+	CreatedOn time.Time
+	CreatedBy sql.NullString
+	UpdatedOn sql.NullTime
+	UpdatedBy sql.NullString
+}
+
 type ThreadMap struct {
 	ID        string
 	Adapter   string

@@ -43,6 +43,8 @@ Worked example, an 8000-character article:
 
 Because only positions matter, changing `chunk_chars` between tries loses nothing. A checkpoint is ignored (and the blog starts over) only if the article text itself differs, or if it was written by an older version of the app. Compression can move a range boundary by a few milliseconds; boundaries sit between sentences, in silence.
 
+**Voice and accent.** `/voices` in Telegram is three taps (gender, voice, accent). The choice is saved in the database, is global, and applies to jobs started after it; a running job keeps the voice it started with. The same data is behind `GET /v1/voices` (genders, voices, accents, current choice) and `PUT /v1/voice {"voice": "Charon", "accent": "indian"}`, so a web page can use drop-downs from it. Until something is chosen, `models.tts.voice` is used with the default (US) accent. Gemini has no accent setting, so a non-default accent is sent as the request's `instructions` ("Speak in an Indian English accent."), never in the text, which Gemini reads aloud as written. Fallback models cannot do accents: they get the voice that matches the chosen gender (`voices` on a `models.tts.fallbacks` entry, else its `voice`). Audio is cached per voice and accent.
+
 ## 5. Follow-up questions, by voice or text
 ![Follow-up questions](./design/images/5-follow-up-questions.svg)
 

@@ -42,11 +42,13 @@
         {
           "model": "mistralai/voxtral-mini-tts-3-0",
           "voice": "en_paul_neutral",
+          "voices": { "male": "en_paul_neutral" },
           "priced_per": "char"
         },
         {
           "model": "x-ai/grok-voice-tts-1.0",
           "voice": "eve",
+          "voices": { "male": "rex", "female": "eve" },
           "priced_per": "char"
         }
       ]

@@ -27,7 +27,8 @@ import (
 func (c *Core) blogJob(ctx context.Context, j *Job, sessionID, pageURL string, confirmed bool) error {
 	log := logx.With(ctx, c.Log).With("session", sessionID, "job", j.ID)
 	cfg := c.Cfg
-	ttsModel, ttsVoice := cfg.GetString("models.tts.model"), cfg.GetString("models.tts.voice")
+	ctx, setting := c.withVoice(ctx) // fixed for this job; the audio caches below are per voice and accent
+	ttsModel, ttsVoice := cfg.GetString("models.tts.model"), setting.Key()
 	hash := store.URLHash(pageURL)
 
 	// If the same blog is already being spoken, wait for it and reuse its audio

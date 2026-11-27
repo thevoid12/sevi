@@ -86,26 +86,30 @@ func (a *app) newCore() (*core.Core, error) {
 }
 
 // newTTS builds the speech model: the main one with its retries, and the
-// optional models.tts.fallbacks ([{"model": "...", "voice": "..."}], same provider; no voice means none is sent)
+// optional models.tts.fallbacks ([{"model": "...", "voice": "...", "voices": {"male": "...", "female": "..."}}], same provider;
+// no voice means none is sent; "voices" picks the one that matches the gender chosen in the app, else "voice" is used)
 // that take over for a piece the main model cannot produce even after the
 // chunk was split (see provider.Resilient).
 func (a *app) newTTS(baseURL, key string) provider.TTS {
 	cfg, log := a.Cfg, a.Log
 	primary := &provider.OpenRouterTTS{
 		BaseURL: baseURL, Key: key, Model: cfg.GetString("models.tts.model"), Voice: cfg.GetString("models.tts.voice"),
-		Retries: ttsRetries(cfg), Log: log,
+		Retries: ttsRetries(cfg), Log: log, Chosen: true,
 	}
 	r := &provider.Resilient{Primary: primary, Log: log}
-	var fallbacks []struct{ Model, Voice string }
+	var fallbacks []struct {
+		Model, Voice string
+		Voices       map[string]string // gender -> voice, to sound like the voice chosen in the app
+	}
 	if err := cfg.UnmarshalKey("models.tts.fallbacks", &fallbacks); err != nil {
-		log.Warnw("models.tts.fallbacks is not a list of {model, voice}; ignoring it", "err", err)
+		log.Warnw("models.tts.fallbacks is not a list of {model, voice, voices}; ignoring it", "err", err)
 	}
 	for _, fb := range fallbacks {
 		if fb.Model == "" {
 			continue
 		}
 		// An empty voice is sent as no voice, for models that take none.
-		r.Fallbacks = append(r.Fallbacks, &provider.OpenRouterTTS{BaseURL: baseURL, Key: key, Model: fb.Model, Voice: fb.Voice, Log: log})
+		r.Fallbacks = append(r.Fallbacks, &provider.OpenRouterTTS{BaseURL: baseURL, Key: key, Model: fb.Model, Voice: fb.Voice, Voices: fb.Voices, Log: log})
 	}
 	return r
 }

@@ -231,8 +231,12 @@ func (b *Bot) onMessage(ctx context.Context, m in) {
 		b.stop(ctx, m)
 		return
 	}
+	if command(m.text) == "/voices" {
+		b.voices(ctx, m)
+		return
+	}
 	if m.text == "/start" {
-		b.say(ctx, m.chatID, "Send me a link to a blog and I will turn it into audio. Reply to any message with a voice note or text to ask about it. Reply /stop to a blog that is still being made to get the audio made so far.")
+		b.say(ctx, m.chatID, "Send me a link to a blog and I will turn it into audio. Reply to any message with a voice note or text to ask about it. Reply /stop to a blog that is still being made to get the audio made so far. /voices changes the voice and accent.")
 		return
 	}
 
@@ -391,6 +395,10 @@ func (b *Bot) onButton(ctx context.Context, cbID string, chatID, msgID, userID i
 	log := logx.With(ctx, b.log)
 	_ = b.api.answerCallback(ctx, cbID, "")
 	p := strings.Split(data, ":")
+	if p[0] == voiceButtons {
+		b.voiceButton(ctx, chatID, msgID, p)
+		return
+	}
 	if len(p) != 3 || p[0] != "c" {
 		log.Warnw("unknown button data", "data", data)
 		return
