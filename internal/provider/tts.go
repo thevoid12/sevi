@@ -66,16 +66,16 @@ type OpenRouterTTS struct {
 	Voices map[string]string
 }
 
-// voiceFor is the voice to send and the words to put in front of the text, for
+// voiceFor is the voice to send and the delivery instructions (the accent), for
 // the setting this job was started with.
-func (t *OpenRouterTTS) voiceFor(ctx context.Context) (name, prefix string) {
+func (t *OpenRouterTTS) voiceFor(ctx context.Context) (name, instructions string) {
 	name = t.Voice
 	s, ok := voice.From(ctx)
 	if !ok {
 		return name, ""
 	}
 	if t.Chosen {
-		return s.Voice, s.Prefix()
+		return s.Voice, s.Instructions()
 	}
 	if v := t.Voices[s.Gender]; v != "" {
 		name = v
@@ -85,11 +85,14 @@ func (t *OpenRouterTTS) voiceFor(ctx context.Context) (name, prefix string) {
 
 // Synth speaks text, retrying a failed call up to Retries more times.
 func (t *OpenRouterTTS) Synth(ctx context.Context, text string) (Speech, error) {
-	name, prefix := t.voiceFor(ctx)
+	name, instructions := t.voiceFor(ctx)
 	req := map[string]any{
 		"model":           t.Model,
-		"input":           prefix + text,
+		"input":           text,  // read aloud exactly as written
 		"response_format": "pcm", // Gemini TTS supports pcm only
+	}
+	if instructions != "" { // style goes here, not in the text: Gemini speaks whatever the text says
+		req["instructions"] = instructions
 	}
 	if name != "" { // some models take no voice; sending one makes the request fail
 		req["voice"] = name

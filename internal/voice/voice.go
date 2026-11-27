@@ -27,7 +27,8 @@ type Voice struct {
 }
 
 // Accent is a way of speaking. Gemini has no accent setting, so it is asked for
-// in words in front of the text (Say). An empty Say is the voice's own accent.
+// in words sent as the request's "instructions" (never in the text, which is read
+// aloud as written). An empty Say is the voice's own accent.
 type Accent struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
@@ -55,10 +56,10 @@ var Voices = []Voice{
 
 var Accents = []Accent{
 	{DefaultAccent, "Default (US)", ""},
-	{"indian", "Indian English", "Say the following in an Indian English accent: "},
-	{"british", "British English", "Say the following in a British English accent: "},
-	{"australian", "Australian English", "Say the following in an Australian English accent: "},
-	{"irish", "Irish English", "Say the following in an Irish English accent: "},
+	{"indian", "Indian English", "Speak in an Indian English accent."},
+	{"british", "British English", "Speak in a British English accent."},
+	{"australian", "Australian English", "Speak in an Australian English accent."},
+	{"irish", "Irish English", "Speak in an Irish English accent."},
 }
 
 // Genders are the choices of the first step, in the order they are offered.
@@ -116,8 +117,8 @@ func (s Setting) Key() string {
 	return s.Voice + "@" + s.Accent
 }
 
-// Prefix is what is said before the text to get the accent ("" for none).
-func (s Setting) Prefix() string {
+// Instructions is the delivery instruction that asks for the accent ("" for none).
+func (s Setting) Instructions() string {
 	a, _ := FindAccent(s.Accent)
 	return a.Say
 }
