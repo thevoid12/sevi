@@ -316,6 +316,19 @@ func (s *Store) PutPrice(ctx context.Context, provider, modelName string, p mode
 	})
 }
 
+// GetSetting returns an app setting, or ErrNotFound when it was never set.
+func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
+	v, err := s.q.GetSetting(ctx, key)
+	if err != nil {
+		return "", notFound(err)
+	}
+	return v, nil
+}
+
+func (s *Store) PutSetting(ctx context.Context, key, value string) error {
+	return s.q.PutSetting(ctx, db.PutSettingParams{Key: key, Value: value})
+}
+
 // PricedModels lists the models of a provider that have a stored price.
 func (s *Store) PricedModels(ctx context.Context, provider string) ([]string, error) {
 	return s.q.ListPricedModels(ctx, provider)

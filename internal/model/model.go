@@ -196,6 +196,9 @@ type Store interface {
 	GetPrice(ctx context.Context, provider, modelName string) (ModelPrice, error)
 	PutPrice(ctx context.Context, provider, modelName string, p ModelPrice) error
 	PricedModels(ctx context.Context, provider string) ([]string, error)
+
+	GetSetting(ctx context.Context, key string) (string, error) // ErrNotFound when never set
+	PutSetting(ctx context.Context, key, value string) error
 }
 
 // Activity lets the host know when work starts and what finished, so it can

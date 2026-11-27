@@ -16,6 +16,7 @@ import (
 
 	"sevi/internal/httpx"
 	"sevi/internal/logx"
+	"sevi/internal/voice"
 )
 
 // Speech is one synthesized chunk. PCM is 24kHz mono s16le. GenerationID
@@ -54,17 +55,44 @@ type OpenRouterTTS struct {
 	Voice   string
 	Retries int // extra attempts after the first
 	Log     *zap.SugaredLogger
+
+	// Chosen makes the model speak with the voice and accent chosen in the app
+	// (see package voice) instead of Voice. Only the Gemini main model can: its
+	// voices are the catalog's, and its accent is asked for in words.
+	Chosen bool
+	// Voices maps a gender ("male", "female") to this model's own voice for it.
+	// A model that is not Chosen uses it to sound like the voice that was chosen.
+	// A gender with no entry gets Voice.
+	Voices map[string]string
+}
+
+// voiceFor is the voice to send and the words to put in front of the text, for
+// the setting this job was started with.
+func (t *OpenRouterTTS) voiceFor(ctx context.Context) (name, prefix string) {
+	name = t.Voice
+	s, ok := voice.From(ctx)
+	if !ok {
+		return name, ""
+	}
+	if t.Chosen {
+		return s.Voice, s.Prefix()
+	}
+	if v := t.Voices[s.Gender]; v != "" {
+		name = v
+	}
+	return name, ""
 }
 
 // Synth speaks text, retrying a failed call up to Retries more times.
 func (t *OpenRouterTTS) Synth(ctx context.Context, text string) (Speech, error) {
+	name, prefix := t.voiceFor(ctx)
 	req := map[string]any{
 		"model":           t.Model,
-		"input":           text,
+		"input":           prefix + text,
 		"response_format": "pcm", // Gemini TTS supports pcm only
 	}
-	if t.Voice != "" { // some models take no voice; sending one makes the request fail
-		req["voice"] = t.Voice
+	if name != "" { // some models take no voice; sending one makes the request fail
+		req["voice"] = name
 	}
 	body, err := json.Marshal(req)
 	if err != nil {

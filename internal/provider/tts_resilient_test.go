@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"sevi/internal/voice"
 )
 
 // ttsServer answers /audio/speech. fail decides, from the request, whether it
@@ -219,5 +222,49 @@ func TestResilientFailsWhenNoSentenceCanBeSpoken(t *testing.T) {
 	srv := newTTSServer(t, func(string, string) bool { return true })
 	if _, err := resilient(srv.URL, 0, "backup").Synth(t.Context(), text); err == nil {
 		t.Fatal("want an error when nothing can be spoken")
+	}
+}
+
+// speak records what one request to the speech endpoint carried.
+func speak(t *testing.T, tts *OpenRouterTTS, ctx context.Context, srv *httptest.Server) (voiceSent, input string) {
+	t.Helper()
+	var body struct{ Voice, Input string }
+	h := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Write([]byte{1, 2})
+	})
+	defer func() { srv.Config.Handler = h }()
+	if _, err := tts.Synth(ctx, "Hello there."); err != nil {
+		t.Fatal(err)
+	}
+	return body.Voice, body.Input
+}
+
+func TestChosenVoiceAndAccentGoToTheMainModelOnly(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	log := zap.NewNop().Sugar()
+	main := &OpenRouterTTS{BaseURL: srv.URL, Key: "k", Model: "m", Voice: "Kore", Chosen: true, Log: log}
+	backup := &OpenRouterTTS{BaseURL: srv.URL, Key: "k", Model: "b", Voice: "paul", Voices: map[string]string{"female": "eve"}, Log: log}
+	ctx := voice.With(t.Context(), voice.Setting{Voice: "Charon", Gender: voice.Male, Accent: "indian"})
+
+	if v, in := speak(t, main, ctx, srv); v != "Charon" || in != "Say the following in an Indian English accent: Hello there." {
+		t.Errorf("main model got voice %q input %q", v, in)
+	}
+	// The backup has no male voice listed: it keeps its own default, and no accent words.
+	if v, in := speak(t, backup, ctx, srv); v != "paul" || in != "Hello there." {
+		t.Errorf("backup got voice %q input %q", v, in)
+	}
+	female := voice.With(t.Context(), voice.Setting{Voice: "Kore", Gender: voice.Female, Accent: voice.DefaultAccent})
+	if v, _ := speak(t, backup, female, srv); v != "eve" {
+		t.Errorf("backup voice for a female choice = %q, want eve", v)
+	}
+	if v, in := speak(t, main, female, srv); v != "Kore" || in != "Hello there." {
+		t.Errorf("default accent must add no words: voice %q input %q", v, in)
+	}
+	// No choice on the context (the CLI, tests): the configured voice, as before.
+	if v, in := speak(t, main, t.Context(), srv); v != "Kore" || in != "Hello there." {
+		t.Errorf("no setting: voice %q input %q", v, in)
 	}
 }

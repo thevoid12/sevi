@@ -235,6 +235,7 @@ func (c *Core) turnJob(ctx context.Context, j *Job, sessionID string, userMsg mo
 
 	// Voice: speak the answer with the TTS model, as an Ogg/Opus voice note.
 	j.progress("Recording the answer…", 0, 0)
+	ctx, _ = c.withVoice(ctx)
 	var pcm [][]byte
 	chunks := fetch.Chunk(r.Answer, cfg.GetInt("models.tts.chunk_chars"))
 	for i, ch := range chunks {
